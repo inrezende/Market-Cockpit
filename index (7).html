@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cockpit de Inteligência de Mercado para Compras</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          base:    '#0B1220',
+          panel:   '#111A2C',
+          panel2:  '#0E1830',
+          hair:    '#233250',
+          ink:     '#E7ECF5',
+          muted:   '#8A97AC',
+          cyan:    '#35D0E0',
+          amber:   '#F0A83C',
+          up:      '#34D399',
+          down:    '#FB6B6B',
+        },
+        fontFamily: {
+          display: ['"Space Grotesk"', 'sans-serif'],
+          mono:    ['"IBM Plex Mono"', 'monospace'],
+          body:    ['Inter', 'sans-serif'],
+        },
+      },
+    },
+  };
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+  // Fallback: se o cdnjs estiver bloqueado (proxy/firewall corporativo), tenta um CDN alternativo
+  // antes de o restante da página carregar, para não deixar o gráfico quebrado silenciosamente.
+  if (typeof Chart === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"><\/script>');
+  }
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  body { background: #0B1220; font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Space Grotesk', sans-serif; }
+  .font-mono { font-family: 'IBM Plex Mono', monospace; }
+
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #233250; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .kpi-card {
+    background: linear-gradient(180deg, #111A2C 0%, #0E1830 100%);
+    border: 1px solid #233250;
+    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+  }
+  .kpi-card:hover { border-color: #35D0E0; transform: translateY(-1px); }
+  .kpi-card[data-selected="true"] { border-color: #35D0E0; box-shadow: 0 0 0 1px #35D0E0 inset; }
+  .kpi-card:focus-visible { outline: 2px solid #35D0E0; outline-offset: 2px; }
+
+  .skeleton {
+    background: linear-gradient(90deg, #16223a 25%, #1c2c4a 37%, #16223a 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .period-btn[data-active="true"] { background: #233250; color: #E7ECF5; }
+  .period-btn[data-active="false"] { color: #8A97AC; }
+  .period-btn:hover { color: #E7ECF5; }
+
+  .badge-up   { color: #34D399; background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); }
+  .badge-down { color: #FB6B6B; background: rgba(251,107,107,.1); border: 1px solid rgba(251,107,107,.3); }
+  .badge-flat { color: #8A97AC; background: rgba(138,151,172,.1); border: 1px solid rgba(138,151,172,.3); }
+  .badge-key  { color: #F0A83C; background: rgba(240,168,60,.1); border: 1px solid rgba(240,168,60,.3); }
+
+  .insight-row { border-left: 2px solid #F0A83C; }
+  .insight-row.tone-up   { border-left-color: #34D399; }
+  .insight-row.tone-down { border-left-color: #FB6B6B; }
+  .insight-row.tone-note { border-left-color: #35D0E0; }
+
+  table.data-table th { color: #8A97AC; font-weight: 500; font-size: 12px; letter-spacing: .02em; }
+  table.data-table td, table.data-table th { border-bottom: 1px solid #1a2740; }
+  table.data-table tr:hover td { background: rgba(53,208,224,.04); }
+
+  #ticker-drawer { transition: transform .25s ease; }
+  #drawer-backdrop, #settings-backdrop, #settings-modal { transition: opacity .2s ease; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton, .kpi-card, #ticker-drawer { animation: none; transition: none; }
+  }
+
+  button:focus-visible, .period-btn:focus-visible, input:focus-visible {
+    outline: 2px solid #35D0E0;
+    outline-offset: 2px;
+  }
+</style>
+</head>
+
+<body class="text-ink min-h-screen">
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pb-6 border-b border-hair">
+    <div class="flex items-center gap-3">
+      <!-- LOGO ACELEN: troque "acelen-logo.svg" abaixo pelo arquivo oficial (mesma pasta do index.html).
+           Sem o arquivo, um wordmark "A" nas cores da marca (azul/laranja) aparece automaticamente no lugar. -->
+      <img id="acelen-logo-img" src="https://logodownload.org/wp-content/uploads/2023/06/acelen-logo.png" alt="Acelen" class="h-9 w-auto shrink-0"
+        onerror="this.style.display='none'; document.getElementById('acelen-wordmark').style.display='flex';">
+      <div id="acelen-wordmark" class="shrink-0 items-center gap-2" style="display:none;">
+        <div class="h-9 w-9 rounded-lg flex items-center justify-center font-display font-bold text-base shrink-0" style="background:#0B4F9E; color:#FF7A1A;">A</div>
+        <span class="font-display font-semibold text-ink text-sm tracking-wide hidden sm:inline">ACELEN</span>
+      </div>
+      <div>
+        <h1 class="font-display text-xl sm:text-2xl font-semibold tracking-tight text-ink">Cockpit de Inteligência de Mercado para Compras</h1>
+        <p class="text-muted text-sm mt-1 max-w-lg">Câmbio, metais e cripto com dados reais de mercado — sem dados simulados.</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="text-right text-xs text-muted font-mono leading-tight mr-1">
+        <div>Última atualização</div>
+        <div id="last-updated" class="text-ink">—</div>
+      </div>
+      <button id="settings-btn" aria-label="Configurações"
+        class="font-mono text-xs w-10 h-10 rounded border border-hair text-muted hover:text-ink hover:border-cyan transition flex items-center justify-center shrink-0">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </button>
+      <button id="refresh-btn"
+        class="font-display text-sm font-semibold px-4 py-2.5 rounded bg-cyan text-base hover:brightness-110 active:brightness-95 transition flex items-center gap-2 disabled:opacity-50">
+        <svg id="refresh-icon" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Atualizar Dados
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== KPI GRID ===================== -->
+  <section class="mb-10">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="font-display text-sm font-semibold text-muted uppercase tracking-wide">Cotações <span class="normal-case text-muted/70 font-body font-normal lowercase">· clique em um ativo para ver detalhes</span></h2>
+      <span class="text-xs text-muted font-mono" id="kpi-count"></span>
+    </div>
+    <div id="kpi-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
+  </section>
+
+  <!-- ===================== FOOTER / TRANSPARENCY ===================== -->
+  <footer class="border-t border-hair pt-6 pb-2 text-xs text-muted leading-relaxed">
+    <p class="font-display text-ink text-sm font-semibold mb-2">Transparência técnica</p>
+    <ul class="space-y-1 list-disc list-inside">
+      <li><span class="text-ink">Câmbio (USD/BRL, EUR/BRL):</span> dados reais e históricos completos via <a class="text-cyan hover:underline" href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter API</a> (taxas de referência do BCE). Gratuita, sem chave, sem limite de uso. USD/BRL é calculado por taxa cruzada a partir de EUR (BRL/EUR ÷ USD/EUR).</li>
+      <li><span class="text-ink">Ouro, Prata, Platina, Paládio, Cobre:</span> preço à vista em tempo real via <a class="text-cyan hover:underline" href="https://gold-api.com" target="_blank" rel="noopener">Gold-API</a>, gratuita e sem chave.</li>
+      <li><span class="text-ink">Níquel, Cobalto, Molibdênio:</span> preço à vista via <a class="text-cyan hover:underline" href="https://metalpriceapi.com" target="_blank" rel="noopener">MetalpriceAPI</a> — exigem plano <strong>pago</strong> dessa API (confirmado: não fazem parte do plano gratuito). Cole sua chave em "Configurações" (ícone de engrenagem); sem plano pago, o card mostra o erro exato da API em vez de um número inventado. Unidade conforme padrão da API (onça troy) — para cotações LME por tonelada, consulte a fonte diretamente.</li>
+      <li><span class="text-ink">Bitcoin, Ethereum:</span> preço, variação 24h e histórico completo via <a class="text-cyan hover:underline" href="https://www.coingecko.com/api" target="_blank" rel="noopener">CoinGecko</a>, pública e sem chave.</li>
+      <li><span class="text-ink">Notícias recentes:</span> busca ao vivo via <a class="text-cyan hover:underline" href="https://blog.gdeltproject.org/" target="_blank" rel="noopener">GDELT Project</a> (monitoramento global de imprensa), pública e sem chave.</li>
+      <li>Histórico e variação diária não estão disponíveis gratuitamente para os 8 metais — só para câmbio e cripto. Nenhum dado nesta página é simulado; se uma fonte falhar, o ativo correspondente mostra "indisponível" com o motivo técnico (nunca um número inventado).</li>
+    </ul>
+  </footer>
+
+</div>
+
+<!-- ===================== GAVETA LATERAL (detalhe do ativo) ===================== -->
+<div id="drawer-backdrop" class="fixed inset-0 bg-black/60 z-40 opacity-0 pointer-events-none"></div>
+<aside id="ticker-drawer" class="fixed top-0 right-0 h-full w-full sm:w-[520px] bg-panel border-l border-hair z-50 overflow-y-auto translate-x-full">
+  <div class="p-5 sm:p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="font-display text-lg font-semibold text-ink" id="detail-heading">Detalhe do ativo</h2>
+      <button id="drawer-close" class="text-muted hover:text-ink p-1" aria-label="Fechar">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div id="featured-card" class="kpi-card rounded-lg p-5 mb-4"></div>
+
+    <div class="flex justify-end mb-3">
+      <div class="flex gap-1 bg-panel2 rounded p-1 border border-hair w-fit" id="period-tabs">
+        <button class="period-btn font-mono text-xs px-3 py-1.5 rounded" data-period="1M">1M</button>
+        <button class="period-btn font-mono text-xs px-3 py-1.5 rounded" data-period="3M">3M</button>
+        <button class="period-btn font-mono text-xs px-3 py-1.5 rounded" data-period="6M">6M</button>
+        <button class="period-btn font-mono text-xs px-3 py-1.5 rounded" data-period="12M">12M</button>
+      </div>
+    </div>
+
+    <div id="detail-insights" class="space-y-2 mb-4"></div>
+
+    <div class="kpi-card rounded-lg p-4 mb-4">
+      <div class="relative h-56">
+        <canvas id="price-chart"></canvas>
+        <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-muted text-sm font-mono text-center px-6">
+          Sem histórico gratuito disponível para este ativo — apenas preço à vista.
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-card rounded-lg overflow-hidden mb-4">
+      <div class="flex items-baseline justify-between px-4 pt-3">
+        <span class="text-xs text-muted font-display uppercase tracking-wide">Tabela analítica</span>
+        <span class="text-xs text-muted font-mono" id="table-caption"></span>
+      </div>
+      <div class="overflow-x-auto max-h-56 mt-2">
+        <table class="data-table w-full text-sm font-mono">
+          <thead class="sticky top-0 bg-panel">
+            <tr>
+              <th class="text-left px-4 py-2.5">Data</th>
+              <th class="text-right px-4 py-2.5">Valor</th>
+              <th class="text-right px-4 py-2.5">Var. (dia)</th>
+              <th class="text-right px-4 py-2.5">Acumulado</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="kpi-card rounded-lg p-4">
+      <h3 class="font-display text-xs font-semibold text-muted uppercase tracking-wide mb-3">Notícias recentes</h3>
+      <div id="news-list" class="space-y-2"></div>
+    </div>
+  </div>
+</aside>
+
+<!-- ===================== MODAL DE CONFIGURAÇÕES ===================== -->
+<div id="settings-backdrop" class="fixed inset-0 bg-black/60 z-40 opacity-0 pointer-events-none"></div>
+<div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+  <div class="kpi-card rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-display text-lg font-semibold text-ink">Configurações</h2>
+      <button id="settings-close" class="text-muted hover:text-ink p-1" aria-label="Fechar">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="mb-5">
+      <label class="text-sm text-ink font-medium block mb-1.5" for="metalprice-key-input">Chave MetalpriceAPI</label>
+      <p class="text-xs text-muted mb-2">Necessária apenas para Níquel, Cobalto e Molibdênio — e apenas com plano pago da MetalpriceAPI (não fazem parte do plano gratuito).</p>
+      <input id="metalprice-key-input" type="password" placeholder="Cole sua chave gratuita aqui" autocomplete="off"
+        class="bg-panel2 border border-hair rounded px-3 py-2 text-sm font-mono text-ink w-full placeholder:text-muted/60">
+      <div class="flex items-center justify-between mt-2">
+        <a href="https://metalpriceapi.com/" target="_blank" rel="noopener" class="text-xs text-cyan hover:underline">Gerar chave grátis →</a>
+        <button id="metalprice-key-apply" class="font-mono text-xs px-4 py-1.5 rounded bg-cyan text-base font-semibold hover:brightness-110">Aplicar</button>
+      </div>
+      <p id="metalprice-key-status" class="text-xs mt-2 leading-relaxed text-muted"></p>
+      <label class="flex items-center justify-between text-xs text-muted mt-2">
+        Salvar esta chave neste navegador (localStorage) entre sessões
+        <input id="save-key-locally" type="checkbox" class="accent-cyan">
+      </label>
+      <p class="text-xs text-muted/70 mt-1 leading-relaxed">Se desmarcado, a chave some ao recarregar a página. Se marcado, fica salva só neste navegador — nunca enviada a nós, nem incluída se você compartilhar o arquivo HTML.</p>
+    </div>
+
+    <div class="border-t border-hair pt-4 space-y-4">
+      <p class="text-xs text-muted uppercase tracking-wide font-display">Preferências</p>
+
+      <label class="flex items-center justify-between text-sm text-ink">
+        Período padrão do gráfico
+        <select id="default-period-select" class="bg-panel2 border border-hair rounded px-2 py-1 text-xs text-ink">
+          <option value="1M">1M</option>
+          <option value="3M">3M</option>
+          <option value="6M">6M</option>
+          <option value="12M">12M</option>
+        </select>
+      </label>
+
+      <div>
+        <label class="flex items-center justify-between text-sm text-ink">
+          Atualização automática
+          <input id="auto-refresh-toggle" type="checkbox" class="accent-cyan">
+        </label>
+        <div class="flex items-center justify-between mt-2">
+          <span class="text-xs text-muted">A cada</span>
+          <select id="auto-refresh-minutes" class="bg-panel2 border border-hair rounded px-2 py-1 text-xs text-ink">
+            <option value="5">5 minutos</option>
+            <option value="60">1 hora</option>
+            <option value="1440">1 dia</option>
+           </select>
+        </div>
+      </div>
+
+      <p class="text-xs text-muted leading-relaxed">Favoritos: clique na estrela ☆ em qualquer ticker da grade para fixá-lo no topo. Fica salvo neste navegador.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ÍNDICE REAL — Portal Analítico
+   Fontes de dados reais:
+     - Frankfurter API  (api.frankfurter.dev)   -> câmbio USD/BRL, EUR/BRL (sem chave)
+     - Gold-API         (api.gold-api.com)      -> ouro, prata, platina, paládio, cobre (sem chave)
+     - MetalpriceAPI    (api.metalpriceapi.com) -> níquel, cobalto, molibdênio (exigem plano PAGO nessa API)
+     - CoinGecko        (api.coingecko.com)     -> bitcoin, ethereum (sem chave)
+     - GDELT Project    (api.gdeltproject.org)  -> notícias recentes por ativo (sem chave)
+   Nasdaq Data Link, Yahoo Finance/Stooq, UN Comtrade, FRED, World Bank, EIA, IMF e USGS foram avaliados
+   para este escopo: a maioria não expõe cobalto/molibdênio em série gratuita e granular, e várias
+   (Yahoo Finance em especial) bloqueiam CORS para chamadas diretas do navegador sem backend — por isso
+   não estão integradas nesta versão 100% front-end.
+
+   Todo parsing de resposta é defensivo (aceita mais de um formato de payload) e todo erro de rede
+   fica registrado em state.data[key].errorMessage, exibido nos cards — para nunca falhar em
+   silêncio nem inventar números quando uma fonte muda de formato ou está fora do ar.
+   ============================================================ */
+
+const FRANKFURTER = 'https://api.frankfurter.dev/v2';
+const GOLDAPI = 'https://api.gold-api.com';
+const METALPRICEAPI = 'https://api.metalpriceapi.com/v1';
+const COINGECKO = 'https://api.coingecko.com/api/v3';
+const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
+
+const PERIOD_DAYS = { '1M': 30, '3M': 90, '6M': 180, '12M': 365 };
+
+const ASSET_META = {
+  USDBRL: { name: 'Dólar/Real', kind: 'fx', chartable: true, source: 'Frankfurter API (BCE)', sourceUrl: 'https://frankfurter.dev' },
+  EURBRL: { name: 'Euro/Real',  kind: 'fx', chartable: true, source: 'Frankfurter API (BCE)', sourceUrl: 'https://frankfurter.dev' },
+  XAU: { name: 'Ouro',    kind: 'metal', unit: 'onça troy', chartable: false, source: 'Gold-API', sourceUrl: 'https://gold-api.com', requiresKey: false },
+  XAG: { name: 'Prata',   kind: 'metal', unit: 'onça troy', chartable: false, source: 'Gold-API', sourceUrl: 'https://gold-api.com', requiresKey: false },
+  XPT: { name: 'Platina', kind: 'metal', unit: 'onça troy', chartable: false, source: 'Gold-API', sourceUrl: 'https://gold-api.com', requiresKey: false },
+  XPD: { name: 'Paládio', kind: 'metal', unit: 'onça troy', chartable: false, source: 'Gold-API', sourceUrl: 'https://gold-api.com', requiresKey: false },
+  HG:  { name: 'Cobre',   kind: 'metal', unit: 'libra',     chartable: false, source: 'Gold-API', sourceUrl: 'https://gold-api.com', requiresKey: false },
+  NI:  { name: 'Níquel',     kind: 'metal', unit: 'onça troy*', chartable: false, source: 'MetalpriceAPI', sourceUrl: 'https://metalpriceapi.com', requiresKey: true },
+  XCO: { name: 'Cobalto',    kind: 'metal', unit: 'onça troy*', chartable: false, source: 'MetalpriceAPI', sourceUrl: 'https://metalpriceapi.com', requiresKey: true },
+  XMO: { name: 'Molibdênio', kind: 'metal', unit: 'onça troy*', chartable: false, source: 'MetalpriceAPI', sourceUrl: 'https://metalpriceapi.com', requiresKey: true },
+  BTC: { name: 'Bitcoin',  kind: 'crypto', chartable: true, source: 'CoinGecko', sourceUrl: 'https://www.coingecko.com/api', cgId: 'bitcoin' },
+  ETH: { name: 'Ethereum', kind: 'crypto', chartable: true, source: 'CoinGecko', sourceUrl: 'https://www.coingecko.com/api', cgId: 'ethereum' },
+};
+const ASSET_ORDER = ['USDBRL', 'EURBRL', 'XAU', 'XAG', 'XPT', 'XPD', 'HG', 'NI', 'XCO', 'XMO', 'BTC', 'ETH'];
+const TIER2_SYMBOLS = ['NI', 'XCO', 'XMO'];
+
+// Consultas GDELT simples (sem aspas/combinações complexas) — reduz o risco de a API
+// devolver uma página de erro HTML em vez de JSON por causa de sintaxe de busca mal formada.
+const NEWS_QUERY = {
+  USDBRL: 'dollar real Brazil exchange rate',
+  EURBRL: 'euro real Brazil exchange rate',
+  XAU: 'gold price',
+  XAG: 'silver price',
+  XPT: 'platinum price',
+  XPD: 'palladium price',
+  HG: 'copper price',
+  NI: 'nickel price',
+  XCO: 'cobalt price',
+  XMO: 'molybdenum price',
+  BTC: 'bitcoin price',
+  ETH: 'ethereum price',
+};
+
+const LS_KEY = 'indice-real-settings-v1';
+
+const state = {
+  usdBrlRate: null,
+  metalpriceApiKey: '',
+  data: {},
+  newsCache: {},
+  selectedAsset: 'USDBRL',
+  selectedPeriod: '3M',
+  chart: null,
+  loading: false,
+  lastUpdated: null,
+  favorites: [],
+  saveKeyLocally: false,
+  autoRefreshEnabled: false,
+  autoRefreshMinutes: 5,
+  autoRefreshTimer: null,
+};
+
+// ---------- Configurações persistidas (localStorage — só neste navegador, nunca enviado a nós) ----------
+function loadSettingsFromStorage() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (Array.isArray(saved.favorites)) state.favorites = saved.favorites.filter(k => ASSET_META[k]);
+    if (typeof saved.selectedPeriod === 'string' && PERIOD_DAYS[saved.selectedPeriod]) state.selectedPeriod = saved.selectedPeriod;
+    if (typeof saved.autoRefreshEnabled === 'boolean') state.autoRefreshEnabled = saved.autoRefreshEnabled;
+    if (typeof saved.autoRefreshMinutes === 'number' && saved.autoRefreshMinutes > 0) state.autoRefreshMinutes = saved.autoRefreshMinutes;
+    if (typeof saved.saveKeyLocally === 'boolean') state.saveKeyLocally = saved.saveKeyLocally;
+    if (state.saveKeyLocally && typeof saved.metalpriceApiKey === 'string') state.metalpriceApiKey = saved.metalpriceApiKey;
+  } catch (e) {
+    console.warn('Não foi possível ler configurações salvas localmente:', e);
+  }
+}
+function saveSettingsToStorage() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      favorites: state.favorites,
+      selectedPeriod: state.selectedPeriod,
+      autoRefreshEnabled: state.autoRefreshEnabled,
+      autoRefreshMinutes: state.autoRefreshMinutes,
+      saveKeyLocally: state.saveKeyLocally,
+      metalpriceApiKey: state.saveKeyLocally ? state.metalpriceApiKey : '',
+    }));
+  } catch (e) {
+    console.warn('Não foi possível salvar configurações localmente:', e);
+  }
+}
+function applyAutoRefreshTimer() {
+  if (state.autoRefreshTimer) { clearInterval(state.autoRefreshTimer); state.autoRefreshTimer = null; }
+  if (state.autoRefreshEnabled && state.autoRefreshMinutes > 0) {
+    state.autoRefreshTimer = setInterval(() => { if (!state.loading) loadAll(); }, state.autoRefreshMinutes * 60 * 1000);
+  }
+}
+
+// ---------- Utilidades ----------
+const fmtNum = (n, digits = 2) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return '—';
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+};
+const fmtUSD = (n) => n === null || n === undefined ? '—' : `US$ ${fmtNum(n, n < 10 ? 4 : 2)}`;
+const fmtBRL = (n) => n === null || n === undefined ? '—' : `R$ ${fmtNum(n, n < 10 ? 4 : 2)}`;
+const fmtPct = (n) => n === null || n === undefined || Number.isNaN(n) ? '—' : `${n > 0 ? '+' : ''}${fmtNum(n, 2)}%`;
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const daysAgoISO = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+};
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+// Formata "de quando é o dado": só data (câmbio, que atualiza ~1x/dia) ou data+hora
+// (metais/cripto, que têm timestamp de verdade).
+function formatAsOf(date, dateOnly) {
+  if (!date || isNaN(date.getTime())) return null;
+  return dateOnly
+    ? date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    : date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// Timeout explícito: sem isso, uma resposta lenta (proxy corporativo, rede instável) fica
+// pendurada indefinidamente e, quando falha, o navegador dá o mesmo erro genérico de sempre.
+// Com o timeout, pelo menos "demorou demais" fica diferenciado de "falhou na hora".
+const FETCH_TIMEOUT_MS = 12000;
+
+async function fetchJSON(url, opts, _isRetry) {
+  const host = url.split('/')[2] || url;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, { ...(opts || {}), signal: controller.signal });
+    clearTimeout(timer);
+  } catch (e) {
+    clearTimeout(timer);
+    // IMPORTANTE: fetch() do navegador dá o MESMO erro genérico ("Failed to fetch") para DNS
+    // bloqueado, timeout, proxy recusando, TLS interceptado, ou instabilidade momentânea — por
+    // design de segurança, o JS não recebe qual dessas é a causa real. Por isso a mensagem final
+    // NÃO afirma "bloqueado" (isso já se mostrou errado uma vez) — só timeout é diferenciável.
+    if (!_isRetry) {
+      // Instabilidade momentânea de proxy/DNS é comum e passageira — tenta mais uma vez antes
+      // de reportar erro, o que resolve boa parte dos casos intermitentes silenciosamente.
+      await new Promise(r => setTimeout(r, 1200));
+      return fetchJSON(url, opts, true);
+    }
+    if (e.name === 'AbortError') {
+      throw new Error(`Tempo de resposta esgotado (>${FETCH_TIMEOUT_MS / 1000}s) em ${host}, mesmo após nova tentativa — rede lenta ou instável, não necessariamente bloqueio`);
+    }
+    throw new Error(`Falha de conexão com ${host}, mesmo após nova tentativa — causa não detalhada pelo navegador (pode ser DNS bloqueado, timeout, proxy ou instabilidade momentânea)`);
+  }
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); }
+  catch {
+    // Inclui um trecho da resposta crua: é assim que descobrimos, por exemplo, que a GDELT estava
+    // devolvendo texto simples "Please limit requests to one every 5 seconds" em vez de JSON —
+    // sem isso, o erro genérico "Resposta não-JSON" escondia o motivo real.
+    const snippet = text.trim().slice(0, 150).replace(/\s+/g, ' ');
+    throw new Error(`Resposta não-JSON (HTTP ${res.status}) em ${url.split('?')[0]}${snippet ? ': "' + snippet + '"' : ''}`);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url.split('?')[0]}`);
+  return data;
+}
+function settleOne(fn) {
+  return fn().then(value => ({ ok: true, value })).catch(err => {
+    console.error(err);
+    return { ok: false, value: null, error: err };
+  });
+}
+function errText(res) {
+  if (!res || res.ok) return null;
+  const msg = res.error && res.error.message ? res.error.message : String(res.error || 'erro desconhecido');
+  return msg.length > 160 ? msg.slice(0, 160) + '…' : msg;
+}
+
+// ---------- Fetch: câmbio (Frankfurter) ----------
+// A Frankfurter API é nativamente cotada em EUR (dados do BCE). Em vez de depender do
+// parâmetro "base" para trocar a moeda-base no servidor, pedimos sempre base=EUR e
+// derivamos USD/BRL por taxa cruzada (BRL/EUR ÷ USD/EUR) — mesma técnica usada por
+// qualquer mesa de câmbio para pares sem cotação direta.
+//
+// O parsing abaixo aceita QUALQUER um dos formatos de resposta plausíveis da API
+// (array plano de linhas, objeto único de um dia, ou série temporal aninhada por data),
+// para não depender de uma suposição única sobre o formato exato do payload.
+function normalizeFrankfurterRows(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object' && raw.rates && typeof raw.rates === 'object') {
+    const keys = Object.keys(raw.rates);
+    if (keys.length === 0) return [];
+    const firstVal = raw.rates[keys[0]];
+    if (typeof firstVal === 'number') {
+      // Formato "snapshot único": { base, date, rates: { USD: 1.08, BRL: 6.4 } }
+      return keys.map(q => ({ date: raw.date, base: raw.base, quote: q, rate: raw.rates[q] }));
+    }
+    if (firstVal && typeof firstVal === 'object') {
+      // Formato "série temporal": { base, rates: { "2026-01-01": { USD: 1.08, BRL: 6.4 }, ... } }
+      const rows = [];
+      Object.keys(raw.rates).forEach(date => {
+        const dayRates = raw.rates[date] || {};
+        Object.keys(dayRates).forEach(q => rows.push({ date, base: raw.base, quote: q, rate: dayRates[q] }));
+      });
+      return rows;
+    }
+  }
+  return [];
+}
+// A documentação oficial confirma (3 fontes independentes checadas): /v2/rate/{base}/{quote}
+// devolve um objeto único e inambíguo {date, base, quote, rate}. Preferimos esse endpoint direto
+// para a cotação corrente — em vez da abordagem anterior via taxa cruzada com EUR, que dependia
+// do parâmetro "quotes" filtrar corretamente uma consulta multi-moeda (ponto que se mostrou frágil
+// em teste real). Mantemos "symbols" como alternativa de nome de parâmetro por segurança.
+async function fetchFrankfurterSeries(base, quote, from, to) {
+  const paramSets = from
+    ? [`from=${from}&to=${to}&base=${base}&quotes=${quote}`, `from=${from}&to=${to}&base=${base}&symbols=${quote}`]
+    : [`base=${base}&quotes=${quote}`, `base=${base}&symbols=${quote}`];
+  let lastErr = null;
+  for (const params of paramSets) {
+    try {
+      const raw = await fetchJSON(`${FRANKFURTER}/rates?${params}`);
+      const rows = normalizeFrankfurterRows(raw).filter(r => r.quote === quote);
+      if (rows.length > 0) {
+        return rows.map(r => ({ date: r.date, value: r.rate })).sort((a, b) => a.date.localeCompare(b.date));
+      }
+      lastErr = new Error(`sem linhas de ${quote} no payload (${base}/${quote})`);
+      console.warn(`Frankfurter: payload sem ${quote} para base=${base}:`, raw);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Frankfurter: ${base}/${quote} indisponível`);
+}
+async function fetchFxCurrentBoth() {
+  const [usdRes, eurRes] = await Promise.all([
+    settleOne(() => fetchJSON(`${FRANKFURTER}/rate/USD/BRL`)),
+    settleOne(() => fetchJSON(`${FRANKFURTER}/rate/EUR/BRL`)),
+  ]);
+  const usdBrl = usdRes.ok && usdRes.value && typeof usdRes.value.rate === 'number' ? usdRes.value.rate : null;
+  const eurBrl = eurRes.ok && eurRes.value && typeof eurRes.value.rate === 'number' ? eurRes.value.rate : null;
+  const asOfDate = (usdRes.ok && usdRes.value && usdRes.value.date) || (eurRes.ok && eurRes.value && eurRes.value.date) || null;
+  if (usdBrl == null && eurBrl == null) {
+    const detail = errText(usdRes) || errText(eurRes) || 'sem detalhes adicionais';
+    throw new Error(`Frankfurter: taxas USD/BRL e EUR/BRL ausentes na resposta (${detail})`);
+  }
+  return { usdBrl, eurBrl, asOfDate };
+}
+async function fetchFxHistoryBoth(days) {
+  const from = daysAgoISO(days);
+  const to = todayISO();
+  const [usdRes, eurRes] = await Promise.all([
+    settleOne(() => fetchFrankfurterSeries('USD', 'BRL', from, to)),
+    settleOne(() => fetchFrankfurterSeries('EUR', 'BRL', from, to)),
+  ]);
+  return {
+    usdBrlSeries: usdRes.ok ? usdRes.value : [],
+    eurBrlSeries: eurRes.ok ? eurRes.value : [],
+  };
+}
+
+
+// ---------- Fetch: metais tier 1 (Gold-API, sem chave) ----------
+async function fetchMetalCurrent(symbol) {
+  const data = await fetchJSON(`${GOLDAPI}/price/${symbol}/USD`);
+  if (data == null || data.price == null) throw new Error('Gold-API: campo "price" ausente na resposta');
+  return { price: data.price, asOf: data.updatedAt ? new Date(data.updatedAt) : null };
+}
+
+// ---------- Fetch: metais tier 2 (MetalpriceAPI, chave gratuita do usuário) ----------
+async function fetchMetalpriceLatest(symbols) {
+  const url = `${METALPRICEAPI}/latest?api_key=${encodeURIComponent(state.metalpriceApiKey)}&base=USD&currencies=${symbols.join(',')}`;
+  const data = await fetchJSON(url);
+  if (!data || data.success === false) {
+    const err = data && data.error ? data.error : null;
+    const info = err ? (err.info || err.message || JSON.stringify(err)) : 'resposta inesperada da MetalpriceAPI';
+    throw new Error(`MetalpriceAPI: ${info}`);
+  }
+  if (!data.rates) throw new Error('MetalpriceAPI: resposta sem campo "rates"');
+  const asOf = data.timestamp ? new Date(data.timestamp * 1000) : null;
+  return { rates: data.rates, asOf };
+}
+// Cada símbolo pode vir como número simples OU como objeto aninhado ({ rate }, { current }, etc.)
+// dependendo do plano/endpoint — extraímos de forma defensiva em vez de assumir um único formato.
+function extractMetalpriceRate(rates, sym) {
+  const v = rates ? rates[sym] : null;
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'object') return v.rate ?? v.current ?? v.price ?? v.value ?? null;
+  return null;
+}
+
+// ---------- Fetch: cripto (CoinGecko, sem chave) ----------
+async function fetchCryptoCurrentBatch(ids) {
+  const url = `${COINGECKO}/coins/markets?vs_currency=usd&ids=${ids.join(',')}&price_change_percentage=24h`;
+  const data = await fetchJSON(url);
+  const map = {};
+  (Array.isArray(data) ? data : []).forEach(c => { map[c.id] = c; });
+  return map;
+}
+async function fetchCryptoHistory(id, days) {
+  const url = `${COINGECKO}/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const data = await fetchJSON(url);
+  const prices = (data && data.prices) || [];
+  const step = Math.max(1, Math.floor(prices.length / 180));
+  return prices
+    .filter((_, i) => i % step === 0)
+    .map(([ts, price]) => ({ date: new Date(ts).toISOString().slice(0, 10), value: price }));
+}
+
+// ---------- Fetch: notícias (GDELT, sem chave) ----------
+// A própria GDELT pede explicitamente no corpo da resposta: "Please limit requests to one every
+// 5 seconds". Uma fila serializada garante esse intervalo mesmo se o usuário trocar de ticker
+// rápido (o que dispararia várias chamadas quase simultâneas sem isso).
+const GDELT_MIN_INTERVAL_MS = 5500; // 5s pedido pela API + margem de segurança
+let gdeltQueue = Promise.resolve();
+let lastGdeltCallAt = 0;
+function throttledGdeltFetch(url) {
+  const task = gdeltQueue.then(async () => {
+    const wait = Math.max(0, lastGdeltCallAt + GDELT_MIN_INTERVAL_MS - Date.now());
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastGdeltCallAt = Date.now();
+    return fetchJSON(url);
+  });
+  gdeltQueue = task.catch(() => {}); // a fila segue mesmo se esta chamada falhar
+  return task;
+}
+async function fetchNews(key) {
+  const q = NEWS_QUERY[key];
+  if (!q) return [];
+  const url = `${GDELT}?query=${encodeURIComponent(q)}&mode=artlist&maxrecords=5&format=json&sort=datedesc&timespan=10d`;
+  const data = await throttledGdeltFetch(url);
+  return ((data && data.articles) || []).map(a => ({ title: a.title, url: a.url, domain: a.domain, date: a.seendate }));
+}
+function formatGdeltDate(s) {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/.exec(s || '');
+  if (!m) return s || '';
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------- Orquestração principal ----------
+async function loadAll() {
+  state.loading = true;
+  renderRefreshState();
+  renderKpiSkeletons();
+
+  const days = PERIOD_DAYS[state.selectedPeriod];
+
+  // 1) Câmbio corrente + histórico — referência de conversão para BRL de todo o resto
+  const [fxCurrentRes, fxHistoryRes] = await Promise.all([
+    settleOne(() => fetchFxCurrentBoth()),
+    settleOne(() => fetchFxHistoryBoth(days)),
+  ]);
+  const fxCurrent = fxCurrentRes.ok ? fxCurrentRes.value : { usdBrl: null, eurBrl: null, asOfDate: null };
+  const fxHistory = fxHistoryRes.ok ? fxHistoryRes.value : { usdBrlSeries: [], eurBrlSeries: [] };
+  const fxErrorMessage = !fxCurrentRes.ok ? errText(fxCurrentRes) : (!fxHistoryRes.ok ? errText(fxHistoryRes) : null);
+  state.usdBrlRate = fxCurrent.usdBrl;
+  const fxAsOf = fxCurrent.asOfDate ? new Date(fxCurrent.asOfDate + 'T12:00:00') : null;
+
+  const fxDefs = {
+    USDBRL: { current: fxCurrent.usdBrl, history: fxHistory.usdBrlSeries },
+    EURBRL: { current: fxCurrent.eurBrl, history: fxHistory.eurBrlSeries },
+  };
+  for (const key of Object.keys(fxDefs)) {
+    const def = fxDefs[key];
+    const isError = def.current === null && def.history.length === 0;
+    const changePercent = def.history.length >= 2
+      ? ((def.history[def.history.length - 1].value - def.history[def.history.length - 2].value) / def.history[def.history.length - 2].value) * 100
+      : null;
+    state.data[key] = {
+      priceUSD: null, priceBRL: def.current,
+      changePercent, changeLabel: 'dia',
+      asOf: fxAsOf, asOfDateOnly: true,
+      history: def.history, error: isError, errorMessage: isError ? fxErrorMessage : null, needsKey: false,
+    };
+  }
+
+  const tasks = [];
+
+  // 2) Cripto — batch corrente + histórico individual
+  const cryptoKeys = Object.keys(ASSET_META).filter(k => ASSET_META[k].kind === 'crypto');
+  tasks.push((async () => {
+    const currentBatch = await settleOne(() => fetchCryptoCurrentBatch(cryptoKeys.map(k => ASSET_META[k].cgId)));
+    for (const key of cryptoKeys) {
+      const meta = ASSET_META[key];
+      const hist = await settleOne(() => fetchCryptoHistory(meta.cgId, days));
+      const coin = currentBatch.ok ? currentBatch.value[meta.cgId] : null;
+      state.data[key] = {
+        priceUSD: coin ? coin.current_price : null,
+        priceBRL: coin && state.usdBrlRate ? coin.current_price * state.usdBrlRate : null,
+        changePercent: coin ? coin.price_change_percentage_24h : null,
+        changeLabel: '24h',
+        asOf: coin && coin.last_updated ? new Date(coin.last_updated) : null, asOfDateOnly: false,
+        history: hist.ok ? hist.value : [],
+        error: !coin,
+        errorMessage: !coin ? (!currentBatch.ok ? errText(currentBatch) : 'Ativo não retornado pela CoinGecko') : null,
+        needsKey: false,
+      };
+    }
+  })());
+
+  // 3) Metais tier 1 (Gold-API, sem chave)
+  const tier1Keys = ['XAU', 'XAG', 'XPT', 'XPD', 'HG'];
+  for (const key of tier1Keys) {
+    tasks.push((async () => {
+      const res = await settleOne(() => fetchMetalCurrent(key));
+      const priceUSD = res.ok ? res.value.price : null;
+      state.data[key] = {
+        priceUSD,
+        priceBRL: priceUSD !== null && state.usdBrlRate ? priceUSD * state.usdBrlRate : null,
+        changePercent: null, changeLabel: null,
+        asOf: res.ok ? res.value.asOf : null, asOfDateOnly: false,
+        history: [], error: !res.ok, errorMessage: !res.ok ? errText(res) : null, needsKey: false,
+      };
+    })());
+  }
+
+  // 4) Metais tier 2 (MetalpriceAPI, chave gratuita opcional do usuário — cobre metais que
+  // não têm fonte gratuita própria; Cobalto/Níquel/Molibdênio exigem plano pago da API)
+  tasks.push((async () => {
+    if (!state.metalpriceApiKey) {
+      TIER2_SYMBOLS.forEach(sym => {
+        state.data[sym] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: false, errorMessage: null, needsKey: true };
+      });
+      return;
+    }
+    await applyTier2Metals();
+  })());
+
+  await Promise.all(tasks);
+
+  state.loading = false;
+  state.lastUpdated = new Date();
+  renderAll();
+}
+
+async function applyTier2Metals() {
+  const res = await settleOne(() => fetchMetalpriceLatest(TIER2_SYMBOLS));
+  const rates = res.ok ? res.value.rates : null;
+  const asOf = res.ok ? res.value.asOf : null;
+  TIER2_SYMBOLS.forEach(sym => {
+    const rate = res.ok ? extractMetalpriceRate(rates, sym) : null;
+    const priceUSD = rate ? 1 / rate : null;
+    const isError = !res.ok || rate == null;
+    state.data[sym] = {
+      priceUSD,
+      priceBRL: priceUSD !== null && state.usdBrlRate ? priceUSD * state.usdBrlRate : null,
+      changePercent: null, changeLabel: null, asOf: isError ? null : asOf, asOfDateOnly: false,
+      history: [], error: isError,
+      errorMessage: !res.ok ? errText(res) : (rate == null ? `Símbolo ${sym} não retornado pela MetalpriceAPI (plano atual pode não incluí-lo)` : null),
+      needsKey: false,
+    };
+  });
+}
+
+async function reloadHistoryForPeriod() {
+  const days = PERIOD_DAYS[state.selectedPeriod];
+
+  const fxHistoryRes = await settleOne(() => fetchFxHistoryBoth(days));
+  const fxHistory = fxHistoryRes.ok ? fxHistoryRes.value : { usdBrlSeries: [], eurBrlSeries: [] };
+  if (state.data.USDBRL) {
+    state.data.USDBRL.history = fxHistory.usdBrlSeries;
+    const h = fxHistory.usdBrlSeries;
+    state.data.USDBRL.changePercent = h.length >= 2 ? ((h[h.length - 1].value - h[h.length - 2].value) / h[h.length - 2].value) * 100 : null;
+  }
+  if (state.data.EURBRL) {
+    state.data.EURBRL.history = fxHistory.eurBrlSeries;
+    const h = fxHistory.eurBrlSeries;
+    state.data.EURBRL.changePercent = h.length >= 2 ? ((h[h.length - 1].value - h[h.length - 2].value) / h[h.length - 2].value) * 100 : null;
+  }
+
+  const cryptoKeys = Object.keys(ASSET_META).filter(k => ASSET_META[k].kind === 'crypto');
+  await Promise.all(cryptoKeys.map(async key => {
+    const d = state.data[key];
+    if (!d) return;
+    const hist = await settleOne(() => fetchCryptoHistory(ASSET_META[key].cgId, days));
+    d.history = hist.ok ? hist.value : [];
+  }));
+}
+
+// ---------- Render: KPI cards ----------
+function renderKpiSkeletons() {
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = '';
+  document.getElementById('kpi-count').textContent = `${ASSET_ORDER.length} ativos`;
+  for (let i = 0; i < ASSET_ORDER.length; i++) {
+    const el = document.createElement('div');
+    el.className = 'kpi-card rounded-lg p-4 h-28';
+    el.innerHTML = `<div class="skeleton h-3 w-20 rounded mb-3"></div><div class="skeleton h-6 w-32 rounded mb-2"></div><div class="skeleton h-3 w-16 rounded"></div>`;
+    grid.appendChild(el);
+  }
+}
+
+function getSortedAssetOrder() {
+  const favs = ASSET_ORDER.filter(k => state.favorites.includes(k));
+  const rest = ASSET_ORDER.filter(k => !state.favorites.includes(k));
+  return [...favs, ...rest];
+}
+function toggleFavorite(key) {
+  const idx = state.favorites.indexOf(key);
+  if (idx >= 0) state.favorites.splice(idx, 1); else state.favorites.push(key);
+  saveSettingsToStorage();
+  renderKpiGrid();
+}
+function starButtonHtml(key) {
+  const isFav = state.favorites.includes(key);
+  return `<button class="fav-star text-sm leading-none ${isFav ? 'text-amber' : 'text-muted/40 hover:text-muted'}" data-fav-key="${key}" aria-label="Favoritar ${escapeHtml(ASSET_META[key].name)}" title="Favoritar">${isFav ? '★' : '☆'}</button>`;
+}
+function wireFavStar(card, key) {
+  const btn = card.querySelector('.fav-star');
+  if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); toggleFavorite(key); });
+}
+
+function renderKpiGrid() {
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = '';
+
+  getSortedAssetOrder().forEach(key => {
+    const meta = ASSET_META[key];
+    const d = state.data[key];
+    const card = document.createElement('div');
+    card.className = 'kpi-card rounded-lg p-4 cursor-pointer';
+    card.dataset.key = key;
+    card.dataset.selected = String(key === state.selectedAsset);
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('click', () => selectAsset(key));
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAsset(key); } });
+
+    if (!d || d.needsKey) {
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">${starButtonHtml(key)}<span class="text-xs text-muted font-medium">${meta.name}</span></div>
+        </div>
+        <div class="text-xs font-mono px-1.5 py-0.5 rounded badge-key inline-block">chave necessária</div>
+        <div class="text-[11px] text-muted mt-2">${meta.source}</div>`;
+      grid.appendChild(card);
+      wireFavStar(card, key);
+      return;
+    }
+    if (d.error) {
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">${starButtonHtml(key)}<span class="text-xs text-muted font-medium">${meta.name}</span></div>
+        </div>
+        <div class="text-sm text-down font-mono">indisponível</div>
+        ${d.errorMessage ? `<div class="text-[10px] text-muted/70 mt-1 font-mono leading-snug" title="${escapeHtml(d.errorMessage)}">${escapeHtml(d.errorMessage)}</div>` : ''}
+        <div class="text-[11px] text-muted mt-2">${meta.source}</div>`;
+      grid.appendChild(card);
+      wireFavStar(card, key);
+      return;
+    }
+
+    const isFx = meta.kind === 'fx';
+    const priceMain = isFx ? fmtBRL(d.priceBRL) : fmtUSD(d.priceUSD);
+    const priceSub = isFx ? '' : (d.priceBRL !== null ? fmtBRL(d.priceBRL) : '');
+    const asOfText = formatAsOf(d.asOf, d.asOfDateOnly);
+    const badgeClass = d.changePercent === null ? 'badge-flat' : d.changePercent > 0 ? 'badge-up' : d.changePercent < 0 ? 'badge-down' : 'badge-flat';
+    // Para metais (sem % de variação), o badge mostra a data do dado em vez do rótulo "spot".
+    const badgeText = d.changePercent === null ? (asOfText || 'preço à vista') : `${fmtPct(d.changePercent)} · ${d.changeLabel}`;
+
+    card.innerHTML = `
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center gap-1.5">${starButtonHtml(key)}<span class="text-xs text-muted font-medium">${meta.name}</span></div>
+        <span class="text-[11px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap ${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="font-mono text-lg text-ink font-medium">${priceMain}</div>
+      ${priceSub ? `<div class="text-xs text-muted font-mono mt-0.5">${priceSub}</div>` : ''}
+      <div class="flex items-center justify-between mt-2">
+        <span class="text-[11px] text-muted/70">${meta.source}</span>
+        ${d.changePercent !== null && asOfText ? `<span class="text-[10px] text-muted/50 font-mono">${asOfText}</span>` : ''}
+      </div>
+    `;
+    grid.appendChild(card);
+    wireFavStar(card, key);
+  });
+}
+
+// ---------- Gaveta lateral: abrir/fechar ----------
+function openDrawer() {
+  document.getElementById('ticker-drawer').classList.remove('translate-x-full');
+  document.getElementById('drawer-backdrop').classList.remove('opacity-0', 'pointer-events-none');
+}
+function closeDrawer() {
+  document.getElementById('ticker-drawer').classList.add('translate-x-full');
+  document.getElementById('drawer-backdrop').classList.add('opacity-0', 'pointer-events-none');
+}
+function openSettings() {
+  // Popula os campos com o estado atual toda vez que o modal abre
+  document.getElementById('metalprice-key-input').value = state.metalpriceApiKey;
+  document.getElementById('save-key-locally').checked = state.saveKeyLocally;
+  document.getElementById('default-period-select').value = state.selectedPeriod;
+  document.getElementById('auto-refresh-toggle').checked = state.autoRefreshEnabled;
+  document.getElementById('auto-refresh-minutes').value = String(state.autoRefreshMinutes);
+  document.getElementById('metalprice-key-status').textContent = '';
+  document.getElementById('settings-modal').classList.remove('opacity-0', 'pointer-events-none');
+  document.getElementById('settings-backdrop').classList.remove('opacity-0', 'pointer-events-none');
+}
+function closeSettings() {
+  document.getElementById('settings-modal').classList.add('opacity-0', 'pointer-events-none');
+  document.getElementById('settings-backdrop').classList.add('opacity-0', 'pointer-events-none');
+}
+
+function selectAsset(key) {
+  state.selectedAsset = key;
+  renderKpiGrid();
+  renderDetail();
+  openDrawer();
+}
+
+// ---------- Render: ticker em destaque (dentro da gaveta) ----------
+function renderFeaturedCard(key) {
+  const meta = ASSET_META[key];
+  const d = state.data[key];
+  const el = document.getElementById('featured-card');
+  if (!meta || !d) { el.innerHTML = ''; return; }
+
+  if (d.needsKey) {
+    el.innerHTML = `
+      <div>
+        <div class="text-sm text-muted mb-1">${meta.name}</div>
+        <div class="text-xs font-mono px-2 py-1 rounded badge-key inline-block mt-1">chave necessária</div>
+        <p class="text-xs text-muted mt-3 leading-relaxed">Este ativo exige plano pago da MetalpriceAPI (fora do plano gratuito). Adicione sua chave em Configurações (ícone de engrenagem no topo) — se seu plano cobrir este metal, ele passa a aparecer aqui.</p>
+      </div>
+      <div class="text-xs text-muted mt-4 pt-3 border-t border-hair">
+        Fonte: <a href="${meta.sourceUrl}" target="_blank" rel="noopener" class="text-cyan hover:underline">${meta.source}</a>
+      </div>`;
+    return;
+  }
+  if (d.error) {
+    el.innerHTML = `
+      <div>
+        <div class="text-sm text-muted mb-1">${meta.name}</div>
+        <div class="text-lg text-down font-mono">indisponível no momento</div>
+        ${d.errorMessage ? `<p class="text-xs text-muted/80 font-mono mt-2 leading-relaxed">${escapeHtml(d.errorMessage)}</p>` : ''}
+      </div>
+      <div class="text-xs text-muted mt-4 pt-3 border-t border-hair">
+        Fonte: <a href="${meta.sourceUrl}" target="_blank" rel="noopener" class="text-cyan hover:underline">${meta.source}</a>
+      </div>`;
+    return;
+  }
+
+  const isFx = meta.kind === 'fx';
+  const priceMain = isFx ? fmtBRL(d.priceBRL) : fmtUSD(d.priceUSD);
+  const priceSub = isFx ? '' : (d.priceBRL !== null ? fmtBRL(d.priceBRL) : '');
+  const asOfText = formatAsOf(d.asOf, d.asOfDateOnly);
+  const badgeClass = d.changePercent === null ? 'badge-flat' : d.changePercent > 0 ? 'badge-up' : d.changePercent < 0 ? 'badge-down' : 'badge-flat';
+  const badgeText = d.changePercent === null ? (asOfText || 'preço à vista') : `${fmtPct(d.changePercent)} · ${d.changeLabel}`;
+
+  el.innerHTML = `
+    <div>
+      <div class="text-sm text-muted mb-1">${meta.name}</div>
+      <div class="font-mono text-3xl text-ink font-semibold leading-tight">${priceMain}</div>
+      ${priceSub ? `<div class="text-sm text-muted font-mono mt-1">${priceSub}</div>` : ''}
+      <span class="text-xs font-mono px-1.5 py-0.5 rounded whitespace-nowrap ${badgeClass} inline-block mt-3">${badgeText}</span>
+    </div>
+    <div class="text-xs text-muted mt-4 pt-3 border-t border-hair">
+      Fonte: <a href="${meta.sourceUrl}" target="_blank" rel="noopener" class="text-cyan hover:underline">${meta.source}</a>
+      ${meta.unit ? `<div class="mt-0.5">por ${meta.unit}</div>` : ''}
+      ${d.changePercent !== null && asOfText ? `<div class="mt-0.5">Dado de ${asOfText}</div>` : ''}
+    </div>
+  `;
+}
+
+// ---------- Render: insights/alertas por ativo ----------
+function buildInsightsFor(key) {
+  const meta = ASSET_META[key];
+  const d = state.data[key];
+  const insights = [];
+  if (!meta || !d) return insights;
+
+  if (d.needsKey) {
+    insights.push({ tone: 'note', text: `${meta.name} exige plano pago da MetalpriceAPI (fora do plano gratuito) — abra Configurações no topo da página para adicionar sua chave.` });
+    return insights;
+  }
+  if (d.error) {
+    insights.push({ tone: 'down', text: `Não foi possível obter dados de ${meta.name} no momento.${d.errorMessage ? ' Motivo técnico: ' + d.errorMessage : ''}` });
+    return insights;
+  }
+
+  if (meta.chartable && d.history && d.history.length >= 2) {
+    const values = d.history.map(p => p.value);
+    const first = values[0], last = values[values.length - 1];
+    const change = ((last - first) / first) * 100;
+    if (Math.abs(change) >= 0.3) {
+      const verbo = change > 0 ? 'acumula alta' : 'acumula queda';
+      insights.push({ tone: change > 0 ? 'up' : 'down', text: `${meta.name} ${verbo} de ${fmtNum(Math.abs(change), 2)}% no período de ${state.selectedPeriod}.` });
+    }
+    const max = Math.max(...values), min = Math.min(...values);
+    const range = min > 0 ? ((max - min) / min) * 100 : 0;
+    if (range >= 3) {
+      insights.push({ tone: 'note', text: `Amplitude de ${fmtNum(range, 2)}% entre a mínima e a máxima do período — atenção à volatilidade ao negociar.` });
+    }
+    if (key === 'USDBRL' && change > 1) {
+      insights.push({ tone: 'down', text: `Dólar em alta de ${fmtNum(change, 2)}% no período — pressão de custo sobre insumos importados em BRL.` });
+    } else if (key === 'USDBRL' && change < -1) {
+      insights.push({ tone: 'up', text: `Dólar em queda de ${fmtNum(Math.abs(change), 2)}% no período — janela favorável para compras em moeda estrangeira.` });
+    }
+  } else if (meta.kind === 'metal') {
+    insights.push({ tone: 'note', text: `${meta.name} é exibido com preço à vista em tempo real via ${meta.source}. Histórico e variação diária não estão disponíveis gratuitamente para este ativo.` });
+  }
+
+  if (insights.length === 0) {
+    insights.push({ tone: 'note', text: `Sem sinais relevantes no período selecionado para ${meta.name}.` });
+  }
+  return insights;
+}
+
+function renderInsightsInto(elId, insights) {
+  const list = document.getElementById(elId);
+  list.innerHTML = '';
+  insights.forEach(ins => {
+    const row = document.createElement('div');
+    row.className = `insight-row tone-${ins.tone} bg-panel2 rounded px-4 py-3 text-sm text-ink/90`;
+    row.textContent = ins.text;
+    list.appendChild(row);
+  });
+}
+
+// ---------- Render: gráfico ----------
+function renderChart() {
+  const d = state.data[state.selectedAsset];
+  const canvas = document.getElementById('price-chart');
+  const emptyEl = document.getElementById('chart-empty');
+
+  if (!d || !d.history || d.history.length === 0) {
+    canvas.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    emptyEl.textContent = 'Sem histórico gratuito disponível para este ativo — apenas preço à vista.';
+    if (state.chart) { state.chart.destroy(); state.chart = null; }
+    return;
+  }
+  if (typeof Chart === 'undefined') {
+    // Biblioteca de gráficos não carregou (bloqueio de rede/firewall para os CDNs) — mostramos
+    // um aviso claro em vez de quebrar o restante da gaveta (tabela, insights, notícias).
+    canvas.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    emptyEl.textContent = 'Biblioteca de gráficos não carregou (verifique bloqueio de rede para cdnjs.cloudflare.com / cdn.jsdelivr.net). Os demais dados abaixo continuam funcionando normalmente.';
+    if (state.chart) { state.chart.destroy(); state.chart = null; }
+    return;
+  }
+  canvas.classList.remove('hidden');
+  emptyEl.classList.add('hidden');
+
+  const labels = d.history.map(p => p.date);
+  const values = d.history.map(p => p.value);
+  const trendUp = values[values.length - 1] >= values[0];
+  const lineColor = trendUp ? '#34D399' : '#FB6B6B';
+
+  if (state.chart) state.chart.destroy();
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 220);
+  gradient.addColorStop(0, trendUp ? 'rgba(52,211,153,.25)' : 'rgba(251,107,107,.25)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+  state.chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: ASSET_META[state.selectedAsset].name,
+        data: values,
+        borderColor: lineColor,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.25,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111A2C',
+          borderColor: '#233250',
+          borderWidth: 1,
+          titleColor: '#8A97AC',
+          bodyColor: '#E7ECF5',
+          titleFont: { family: 'IBM Plex Mono', size: 11 },
+          bodyFont: { family: 'IBM Plex Mono', size: 12 },
+          padding: 10,
+        },
+      },
+      scales: {
+        x: { grid: { color: '#1a2740' }, ticks: { color: '#8A97AC', font: { family: 'IBM Plex Mono', size: 10 }, maxTicksLimit: 6 } },
+        y: { grid: { color: '#1a2740' }, ticks: { color: '#8A97AC', font: { family: 'IBM Plex Mono', size: 10 } } },
+      },
+    },
+  });
+}
+
+// ---------- Render: tabela ----------
+function renderTable() {
+  const d = state.data[state.selectedAsset];
+  const meta = ASSET_META[state.selectedAsset];
+  const body = document.getElementById('table-body');
+  const caption = document.getElementById('table-caption');
+  body.innerHTML = '';
+
+  if (!d || !d.history || d.history.length === 0) {
+    caption.textContent = '';
+    body.innerHTML = `<tr><td colspan="4" class="px-4 py-6 text-center text-muted">Sem histórico disponível.</td></tr>`;
+    return;
+  }
+
+  const hist = d.history;
+  const first = hist[0].value;
+  caption.textContent = `${meta.name} · ${state.selectedPeriod} · ${hist.length} pontos`;
+
+  const rows = hist.slice(-30).reverse();
+  rows.forEach((point, idx) => {
+    const originalIdx = hist.length - 1 - idx;
+    const prev = hist[originalIdx - 1];
+    const dayChange = prev ? ((point.value - prev.value) / prev.value) * 100 : null;
+    const accChange = ((point.value - first) / first) * 100;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="px-4 py-2 text-muted">${point.date}</td>
+      <td class="px-4 py-2 text-right text-ink">${fmtNum(point.value, point.value < 10 ? 4 : 2)}</td>
+      <td class="px-4 py-2 text-right ${dayChange === null ? 'text-muted' : dayChange >= 0 ? 'text-up' : 'text-down'}">${fmtPct(dayChange)}</td>
+      <td class="px-4 py-2 text-right ${accChange >= 0 ? 'text-up' : 'text-down'}">${fmtPct(accChange)}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- Render: notícias ----------
+async function ensureNews(key) {
+  if (!state.newsCache[key]) {
+    state.newsCache[key] = { loading: true, items: [], error: false, errorMessage: null };
+    renderNews(key);
+    const res = await settleOne(() => fetchNews(key));
+    state.newsCache[key] = { loading: false, items: res.ok ? res.value : [], error: !res.ok, errorMessage: !res.ok ? errText(res) : null };
+  }
+  renderNews(key);
+}
+function renderNews(key) {
+  if (state.selectedAsset !== key) return;
+  const el = document.getElementById('news-list');
+  const cache = state.newsCache[key];
+  if (!cache || cache.loading) {
+    el.innerHTML = `<div class="skeleton h-4 w-full rounded mb-2"></div><div class="skeleton h-4 w-3/4 rounded"></div>`;
+    return;
+  }
+  if (cache.error) {
+    el.innerHTML = `<div class="text-sm text-muted">Não foi possível carregar notícias agora.${cache.errorMessage ? ` <span class="text-[11px] font-mono text-muted/70">(${escapeHtml(cache.errorMessage)})</span>` : ''}</div>`;
+    return;
+  }
+  if (cache.items.length === 0) {
+    el.innerHTML = `<div class="text-sm text-muted">Nenhuma notícia recente encontrada para este ativo.</div>`;
+    return;
+  }
+  el.innerHTML = cache.items.map(a => `
+    <a href="${a.url}" target="_blank" rel="noopener" class="block group">
+      <div class="text-sm text-ink group-hover:text-cyan transition leading-snug">${escapeHtml(a.title)}</div>
+      <div class="text-[11px] text-muted font-mono mt-0.5">${escapeHtml(a.domain || '')} · ${formatGdeltDate(a.date)}</div>
+    </a>
+  `).join('<div class="border-t border-hair my-2"></div>');
+}
+
+// ---------- Render: detalhe completo do ativo selecionado ----------
+// Isola cada bloco da gaveta: se um deles lançar uma exceção (ex.: biblioteca externa que não
+// carregou), os demais blocos continuam renderizando normalmente em vez de travar tudo.
+function safeCall(fn, label) {
+  try { fn(); } catch (e) { console.error(`Falha ao renderizar "${label}":`, e); }
+}
+
+function renderDetail() {
+  const key = state.selectedAsset;
+  const meta = ASSET_META[key];
+  if (!meta) return;
+  document.getElementById('detail-heading').textContent = meta.name;
+  document.getElementById('period-tabs').classList.toggle('hidden', !meta.chartable);
+  safeCall(() => renderFeaturedCard(key), 'card em destaque');
+  safeCall(() => renderInsightsInto('detail-insights', buildInsightsFor(key)), 'insights');
+  safeCall(() => renderChart(), 'gráfico');
+  safeCall(() => renderTable(), 'tabela');
+  ensureNews(key); // assíncrono e já autoprotegido via settleOne
+}
+
+function renderPeriodTabs() {
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.dataset.active = String(btn.dataset.period === state.selectedPeriod);
+    btn.onclick = async () => {
+      state.selectedPeriod = btn.dataset.period;
+      renderPeriodTabs();
+      await reloadHistoryForPeriod();
+      safeCall(() => renderChart(), 'gráfico');
+      safeCall(() => renderTable(), 'tabela');
+      safeCall(() => renderInsightsInto('detail-insights', buildInsightsFor(state.selectedAsset)), 'insights');
+    };
+  });
+}
+
+// ---------- Render: estado do cabeçalho ----------
+function renderRefreshState() {
+  const btn = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  btn.disabled = state.loading;
+  icon.style.animation = state.loading ? 'spin 0.9s linear infinite' : '';
+}
+function renderLastUpdated() {
+  const el = document.getElementById('last-updated');
+  if (!state.lastUpdated) { el.textContent = '—'; return; }
+  el.textContent = state.lastUpdated.toLocaleTimeString('pt-BR');
+}
+function renderAll() {
+  renderRefreshState();
+  renderKpiGrid();
+  renderPeriodTabs();
+  renderDetail(); // popula o conteúdo da gaveta em segundo plano; não a abre sozinho
+  renderLastUpdated();
+}
+
+// ---------- Listeners ----------
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  if (!state.loading) loadAll();
+});
+
+document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+document.getElementById('drawer-backdrop').addEventListener('click', closeDrawer);
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeDrawer(); closeSettings(); }
+});
+
+document.getElementById('metalprice-key-apply').addEventListener('click', async () => {
+  const input = document.getElementById('metalprice-key-input');
+  const statusEl = document.getElementById('metalprice-key-status');
+  state.metalpriceApiKey = input.value.trim();
+  state.saveKeyLocally = document.getElementById('save-key-locally').checked;
+  saveSettingsToStorage();
+  if (!state.metalpriceApiKey) {
+    statusEl.textContent = '';
+    return;
+  }
+  statusEl.textContent = 'Verificando chave...';
+  await applyTier2Metals();
+  const anyOk = TIER2_SYMBOLS.some(sym => state.data[sym] && !state.data[sym].error);
+  statusEl.textContent = anyOk
+    ? 'Chave aplicada e validada.'
+    : `Nenhum dos símbolos solicitados está disponível nesta chave (normal se seu plano não inclui Cobalto/Níquel/Molibdênio). ${state.data.NI && state.data.NI.errorMessage ? state.data.NI.errorMessage : ''}`;
+  statusEl.className = `text-xs mt-2 leading-relaxed ${anyOk ? 'text-up' : 'text-down'}`;
+  renderKpiGrid();
+  if (TIER2_SYMBOLS.includes(state.selectedAsset)) renderDetail();
+});
+
+document.getElementById('save-key-locally').addEventListener('change', (e) => {
+  state.saveKeyLocally = e.target.checked;
+  saveSettingsToStorage();
+});
+
+document.getElementById('default-period-select').addEventListener('change', async (e) => {
+  state.selectedPeriod = e.target.value;
+  saveSettingsToStorage();
+  renderPeriodTabs();
+  await reloadHistoryForPeriod();
+  safeCall(() => renderChart(), 'gráfico');
+  safeCall(() => renderTable(), 'tabela');
+  safeCall(() => renderInsightsInto('detail-insights', buildInsightsFor(state.selectedAsset)), 'insights');
+});
+
+document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => {
+  state.autoRefreshEnabled = e.target.checked;
+  saveSettingsToStorage();
+  applyAutoRefreshTimer();
+});
+document.getElementById('auto-refresh-minutes').addEventListener('change', (e) => {
+  state.autoRefreshMinutes = Number(e.target.value) || 5;
+  saveSettingsToStorage();
+  applyAutoRefreshTimer();
+});
+
+// ---------- Boot ----------
+loadSettingsFromStorage();
+applyAutoRefreshTimer();
+loadAll();
+</script>
+
+</body>
+</html>

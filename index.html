@@ -174,8 +174,8 @@
       <li><span class="text-ink">Câmbio (USD/BRL, EUR/BRL):</span> fonte 1 — <a class="text-cyan hover:underline" href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter API</a> (taxas de referência do BCE), gratuita e sem chave. Se indisponível, fonte 2 (fallback automático) — <a class="text-cyan hover:underline" href="https://docs.awesomeapi.com.br/api-de-moedas" target="_blank" rel="noopener">AwesomeAPI</a> (câmbio comercial brasileiro), também gratuita e sem chave. O card indica qual das duas respondeu.</li>
       <li><span class="text-ink">Ouro, Prata, Platina, Paládio, Cobre:</span> fonte 1 — <a class="text-cyan hover:underline" href="https://metalpriceapi.com" target="_blank" rel="noopener">MetalpriceAPI</a>, só quando há chave paga configurada em "Configurações". Se não houver chave, ou a MetalpriceAPI falhar/não retornar o símbolo, fonte 2 (fallback automático) — <a class="text-cyan hover:underline" href="https://gold-api.com" target="_blank" rel="noopener">Gold-API</a>, gratuita e sem chave.</li>
       <li><span class="text-ink">Níquel, Cobalto, Molibdênio:</span> preço à vista via <a class="text-cyan hover:underline" href="https://metalpriceapi.com" target="_blank" rel="noopener">MetalpriceAPI</a> — exigem plano <strong>pago</strong> dessa API. Cole sua chave em "Configurações"; sem plano pago, o card mostra o erro exato da API em vez de um número inventado.</li>
-      <li><span class="text-ink">Aço Inox (tonelada), HRC Steel:</span> HRC Steel via <a class="text-cyan hover:underline" href="https://tradingeconomics.com/commodity/hrc-steel" target="_blank" rel="noopener">Trading Economics</a> — exige chave <strong>paga</strong> dessa API, configurável em "Configurações". <strong>Aço Inox não tem, até o momento, nenhuma API gratuita ou paga com dado de mercado confiável</strong> (pesquisamos SunSirs, Metals-API, Trading Economics e Argus — nenhuma expõe o dado via API acessível); o card mostra "sem fonte disponível" em vez de inventar um número.</li>
-      <li><span class="text-ink">Enxofre, Ácido Sulfúrico, Soda Cáustica:</span> Enxofre via <a class="text-cyan hover:underline" href="https://tradingeconomics.com/commodity/sulfur" target="_blank" rel="noopener">Trading Economics</a> (mesma chave paga do HRC Steel). <strong>Ácido Sulfúrico e Soda Cáustica não têm API pública (gratuita ou paga) identificada</strong> — os dados existentes (SunSirs, Intratec, ICIS) são publicados apenas em relatórios pagos, sem endpoint de API; os cards mostram "sem fonte disponível".</li>
+      <li><span class="text-ink">Aço Inox (tonelada), HRC Steel:</span> HRC Steel — fonte 1: <a class="text-cyan hover:underline" href="https://tradingeconomics.com/commodity/hrc-steel" target="_blank" rel="noopener">Trading Economics</a> via API, só com chave <strong>paga</strong> configurada em "Configurações"; sem chave (ou se a API falhar), fonte 3/último recurso — extração automática da meta description da própria página pública da Trading Economics, via um proxy CORS de terceiro (<a class="text-cyan hover:underline" href="https://allorigins.win" target="_blank" rel="noopener">allorigins.win</a>). Essa extração é <strong>instável por natureza</strong>: o proxy pode cair, ou a Trading Economics pode mudar o HTML da página sem aviso — quando isso acontece, o card volta a mostrar "indisponível" com o erro exato, nunca um número inventado. O card sempre indica qual das duas fontes respondeu. <strong>Aço Inox não tem, até o momento, nenhuma API ou página pública com dado de mercado confiável identificada</strong> (pesquisamos SunSirs, Metals-API, Trading Economics e Argus); o card mostra "sem fonte disponível".</li>
+      <li><span class="text-ink">Enxofre, Ácido Sulfúrico, Soda Cáustica:</span> Enxofre segue a mesma ordem de 3 fontes do HRC Steel acima (API paga da Trading Economics → extração da página pública via proxy). <strong>Ácido Sulfúrico e Soda Cáustica não têm API nem página pública com dado de mercado identificada</strong> — os dados existentes (SunSirs, Intratec, ICIS) são publicados apenas em relatórios pagos, sem endpoint ou página acessível; os cards mostram "sem fonte disponível".</li>
       <li><span class="text-ink">IGP-M, IPCA, Selic:</span> dados oficiais e históricos completos via <a class="text-cyan hover:underline" href="https://www3.bcb.gov.br/sgspub" target="_blank" rel="noopener">Sistema Gerenciador de Séries Temporais do Banco Central (SGS/BCB)</a>, pública e sem chave. IGP-M e IPCA exibidos como variação acumulada em 12 meses; Selic como meta definida pelo Copom.</li>
       <li><span class="text-ink">Bitcoin, Ethereum:</span> fonte 1 — <a class="text-cyan hover:underline" href="https://www.coingecko.com/api" target="_blank" rel="noopener">CoinGecko</a>. Se indisponível, fonte 2 (fallback) — <a class="text-cyan hover:underline" href="https://www.binance.com/en/binance-api" target="_blank" rel="noopener">Binance</a> (preço convertido para BRL pela cotação do dólar do dia).</li>
       <li><span class="text-ink">Notícias recentes:</span> busca ao vivo via <a class="text-cyan hover:underline" href="https://blog.gdeltproject.org/" target="_blank" rel="noopener">GDELT Project</a>, pública e sem chave.</li>
@@ -275,7 +275,7 @@
 
     <div class="border-t border-hair pt-4 mb-5">
       <label class="text-sm text-ink font-medium block mb-1.5" for="tradingeconomics-key-input">Chave Trading Economics</label>
-      <p class="text-xs text-muted mb-2">Necessária apenas para Enxofre e HRC Steel — e apenas com plano pago da Trading Economics (não fazem parte do plano gratuito/guest).</p>
+      <p class="text-xs text-muted mb-2">Só necessária para uma fonte mais confiável de Enxofre e HRC Steel. Sem chave, esses 2 ativos tentam automaticamente extrair o preço da página pública da Trading Economics (fonte instável, via proxy de terceiro) antes de mostrar "indisponível".</p>
       <input id="tradingeconomics-key-input" type="password" placeholder="Cole sua chave aqui" autocomplete="off"
         class="bg-panel2 border border-hair rounded px-3 py-2 text-sm font-mono text-ink w-full placeholder:text-muted/60">
       <div class="flex items-center justify-between mt-2">
@@ -332,7 +332,9 @@
      - Ouro/Prata/Platina/Paládio/Cobre: MetalpriceAPI (fonte 1, só se houver chave paga do usuário) -> Gold-API (fonte 2/fallback, sem chave)
      - Níquel/Cobalto/Molibdênio: MetalpriceAPI (chave paga do usuário) — sem fonte gratuita
      - Aço Inox: nenhuma fonte (gratuita ou paga) encontrada — sempre "sem fonte disponível"
-     - HRC Steel, Enxofre: Trading Economics (chave paga do usuário) — sem fonte gratuita
+     - HRC Steel, Enxofre: Trading Economics API (fonte 1, chave paga opcional do usuário) -> extração da
+       página pública da Trading Economics via proxy CORS de terceiro (fonte 3/último recurso, sem chave,
+       mas frágil: depende de um proxy de terceiro e do HTML da página não mudar de estrutura)
      - Ácido Sulfúrico, Soda Cáustica: nenhuma fonte (gratuita ou paga) encontrada — sempre "sem fonte disponível"
      - IGP-M, IPCA, Selic: Banco Central do Brasil — SGS (sem chave, fonte oficial única)
      - Bitcoin, Ethereum: CoinGecko (sem chave) -> Binance (sem chave, fallback; convertido a BRL via câmbio do dia)
@@ -357,6 +359,10 @@ const BCB_SGS = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs';
 const COINGECKO = 'https://api.coingecko.com/api/v3';
 const BINANCE = 'https://api.binance.com/api/v3';
 const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
+// Proxy CORS de terceiro (necessário porque tradingeconomics.com não libera CORS para sites externos).
+// Usado só como fonte 3 (último recurso) para HRC Steel/Enxofre quando não há chave paga da API —
+// é frágil por natureza: o proxy pode cair, e a extração quebra se a TE mudar o HTML da página.
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 const PERIOD_DAYS = { '1M': 30, '3M': 90, '6M': 180, '12M': 365 };
 
@@ -728,16 +734,113 @@ async function fetchTradingEconomicsCommodity(teSymbol) {
   const dateStr = row.LastUpdate || row.CloseDate || row.Date || null;
   return { price: Number(price), asOf: dateStr ? new Date(dateStr) : null, unit: row.Unit || null };
 }
+
+// ---------- Fetch: HRC Steel e Enxofre, fonte 3/último recurso (extração da página pública da
+// Trading Economics via proxy CORS de terceiro — sem chave, mas frágil por natureza) ----------
+async function fetchTextViaProxy(pageUrl) {
+  const url = `${CORS_PROXY}${encodeURIComponent(pageUrl)}`;
+  const host = url.split('/')[2] || url;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error(`Tempo de resposta esgotado (>${FETCH_TIMEOUT_MS / 1000}s) ao extrair ${pageUrl} via proxy ${host}`);
+    throw new Error(`Falha ao acessar ${pageUrl} via proxy CORS ${host} — proxy de terceiro pode estar fora do ar`);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} ao buscar ${pageUrl} via proxy ${host}`);
+  return await res.text();
+}
+// A Trading Economics renderiza no servidor uma meta description tipo "HRC Steel fell to 1,234.12
+// USD/T on Sep 7, 2026, down 0.31% from the previous day..." — extraímos dali em vez de tentar
+// mapear a estrutura visual da página, que muda com mais frequência e sem aviso.
+function extractTeDescriptionFromHtml(html) {
+  const m = /<meta[^>]+(?:property|name)="(?:og:description|twitter:description|description)"[^>]+content="([^"]*)"/i.exec(html)
+    || /<meta[^>]+content="([^"]*)"[^>]+(?:property|name)="(?:og:description|twitter:description|description)"/i.exec(html);
+  if (!m) throw new Error('Não foi possível localizar a meta description no HTML da página (layout pode ter mudado)');
+  return m[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+}
+function parseTeDescription(desc) {
+  const full = /to\s+([\d,]+\.?\d*)\s*([A-Za-z]{2,6}\/[A-Za-z%]+)?\s+on\s+([^,]+),\s*(down|up)\s+([\d.]+)%/i.exec(desc);
+  if (full) {
+    return {
+      price: parseFloat(full[1].replace(/,/g, '')),
+      unit: full[2] || null,
+      changePercent: full[4].toLowerCase() === 'down' ? -parseFloat(full[5]) : parseFloat(full[5]),
+    };
+  }
+  const simple = /to\s+([\d,]+\.?\d*)/i.exec(desc);
+  if (simple) return { price: parseFloat(simple[1].replace(/,/g, '')), unit: null, changePercent: null };
+  throw new Error(`Não foi possível extrair um preço do texto da página (trecho: "${desc.slice(0, 120)}")`);
+}
+async function fetchTradingEconomicsScrape(pageUrl) {
+  const html = await fetchTextViaProxy(pageUrl);
+  const desc = extractTeDescriptionFromHtml(html);
+  const parsed = parseTeDescription(desc);
+  if (!Number.isFinite(parsed.price)) throw new Error(`Preço extraído não é um número válido (trecho: "${desc.slice(0, 120)}")`);
+  return parsed;
+}
+
 async function applyTradingEconomicsAssets() {
   for (const key of TE_SYMBOLS) {
     const meta = ASSET_META[key];
-    const res = await settleOne(() => fetchTradingEconomicsCommodity(meta.teSymbol));
+
+    // Fonte 1: API oficial (só se houver chave paga configurada)
+    if (state.tradingEconomicsApiKey) {
+      const apiRes = await settleOne(() => fetchTradingEconomicsCommodity(meta.teSymbol));
+      if (apiRes.ok) {
+        state.data[key] = {
+          priceUSD: apiRes.value.price,
+          priceBRL: state.usdBrlRate ? apiRes.value.price * state.usdBrlRate : null,
+          changePercent: null, changeLabel: null,
+          asOf: apiRes.value.asOf, asOfDateOnly: false,
+          history: [], error: false, errorMessage: null, needsKey: false, noSource: false, sourceLabel: 'Trading Economics (API)',
+        };
+        continue;
+      }
+      // Fonte 1 falhou mesmo com chave — tenta fonte 3 (extração da página pública) antes de desistir
+      const scrapeRes = await settleOne(() => fetchTradingEconomicsScrape(meta.sourceUrl));
+      if (scrapeRes.ok) {
+        state.data[key] = {
+          priceUSD: scrapeRes.value.price,
+          priceBRL: state.usdBrlRate ? scrapeRes.value.price * state.usdBrlRate : null,
+          changePercent: scrapeRes.value.changePercent, changeLabel: scrapeRes.value.changePercent != null ? 'dia' : null,
+          asOf: null, asOfDateOnly: false,
+          history: [], error: false, errorMessage: null, needsKey: false, noSource: false,
+          sourceLabel: 'Trading Economics (extraído da página pública — instável)',
+        };
+        continue;
+      }
+      state.data[key] = {
+        priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false,
+        history: [], error: true,
+        errorMessage: `API: ${errText(apiRes)} · Extração da página pública: ${errText(scrapeRes)}`,
+        needsKey: false, sourceLabel: null,
+      };
+      continue;
+    }
+
+    // Sem chave paga: pula direto para a fonte 3 (extração da página pública, via proxy CORS)
+    const scrapeRes = await settleOne(() => fetchTradingEconomicsScrape(meta.sourceUrl));
+    if (scrapeRes.ok) {
+      state.data[key] = {
+        priceUSD: scrapeRes.value.price,
+        priceBRL: state.usdBrlRate ? scrapeRes.value.price * state.usdBrlRate : null,
+        changePercent: scrapeRes.value.changePercent, changeLabel: scrapeRes.value.changePercent != null ? 'dia' : null,
+        asOf: null, asOfDateOnly: false,
+        history: [], error: false, errorMessage: null, needsKey: false, noSource: false,
+        sourceLabel: 'Trading Economics (extraído da página pública — instável)',
+      };
+      continue;
+    }
     state.data[key] = {
-      priceUSD: res.ok ? res.value.price : null,
-      priceBRL: res.ok && state.usdBrlRate ? res.value.price * state.usdBrlRate : null,
-      changePercent: null, changeLabel: null,
-      asOf: res.ok ? res.value.asOf : null, asOfDateOnly: false,
-      history: [], error: !res.ok, errorMessage: !res.ok ? errText(res) : null, needsKey: false, noSource: false,
+      priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false,
+      history: [], error: true,
+      errorMessage: `Extração da página pública falhou (${errText(scrapeRes)}). Uma chave paga da Trading Economics em Configurações tende a ser mais confiável.`,
+      needsKey: false, sourceLabel: null,
     };
   }
 }
@@ -997,16 +1100,9 @@ async function loadAll() {
     await applyTier2Metals();
   })());
 
-  // 5) HRC Steel e Enxofre (Trading Economics, chave paga opcional do usuário)
-  tasks.push((async () => {
-    if (!state.tradingEconomicsApiKey) {
-      TE_SYMBOLS.forEach(sym => {
-        state.data[sym] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: false, errorMessage: null, needsKey: true };
-      });
-      return;
-    }
-    await applyTradingEconomicsAssets();
-  })());
+  // 5) HRC Steel e Enxofre — fonte 1: Trading Economics API (chave paga opcional); fonte 3
+  // (último recurso): extração da página pública quando não há chave ou a API falha.
+  tasks.push(applyTradingEconomicsAssets());
 
   // 6) Aço Inox, Ácido Sulfúrico, Soda Cáustica — sem fonte confirmada, nunca tentam fetch
   applyNoSourceAssets();
@@ -1345,6 +1441,10 @@ function buildInsightsFor(key) {
     insights.push({ tone: 'note', text: `${meta.name} é exibido com preço à vista em tempo real via ${d.sourceLabel || meta.source}. Histórico e variação diária não estão disponíveis gratuitamente para este ativo.` });
   }
 
+  if (d.sourceLabel && d.sourceLabel.includes('página pública')) {
+    insights.push({ tone: 'note', text: `Este preço foi extraído automaticamente de uma página pública da Trading Economics (não é uma API oficial) — pode falhar ou ficar desatualizado sem aviso se a página mudar de layout. Uma chave paga da Trading Economics em Configurações tende a ser mais estável.` });
+  }
+
   if (insights.length === 0) {
     insights.push({ tone: 'note', text: `Sem sinais relevantes no período selecionado para ${meta.name}.` });
   }
@@ -1611,16 +1711,13 @@ document.getElementById('tradingeconomics-key-apply').addEventListener('click', 
   state.tradingEconomicsApiKey = input.value.trim();
   state.saveTeKeyLocally = document.getElementById('save-te-key-locally').checked;
   saveSettingsToStorage();
-  if (!state.tradingEconomicsApiKey) {
-    statusEl.textContent = '';
-    return;
-  }
-  statusEl.textContent = 'Verificando chave...';
+  statusEl.textContent = state.tradingEconomicsApiKey ? 'Verificando chave...' : 'Sem chave — tentando extrair da página pública (fonte instável)...';
   await applyTradingEconomicsAssets();
   const anyOk = TE_SYMBOLS.some(sym => state.data[sym] && !state.data[sym].error);
-  statusEl.textContent = anyOk
-    ? 'Chave aplicada e validada.'
-    : `Nenhum dos símbolos solicitados está disponível nesta chave. ${state.data.HRC && state.data.HRC.errorMessage ? state.data.HRC.errorMessage : ''}`;
+  const usedScrape = TE_SYMBOLS.some(sym => state.data[sym] && state.data[sym].sourceLabel && state.data[sym].sourceLabel.includes('página pública'));
+  statusEl.textContent = !anyOk
+    ? `Nenhum dado disponível no momento. ${state.data.HRC && state.data.HRC.errorMessage ? state.data.HRC.errorMessage : ''}`
+    : (state.tradingEconomicsApiKey && !usedScrape ? 'Chave aplicada e validada.' : 'Dados obtidos por extração da página pública (fonte instável, sem chave).');
   statusEl.className = `text-xs mt-2 leading-relaxed ${anyOk ? 'text-up' : 'text-down'}`;
   renderKpiGrid();
   if (TE_SYMBOLS.includes(state.selectedAsset)) renderDetail();

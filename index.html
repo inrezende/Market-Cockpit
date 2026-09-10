@@ -258,7 +258,7 @@
 
     <div class="mb-5">
       <label class="text-sm text-ink font-medium block mb-1.5" for="metalprice-key-input">Chave MetalpriceAPI</label>
-      <p class="text-xs text-muted mb-2">Necessária apenas para Níquel, Cobalto e Molibdênio — e apenas com plano pago da MetalpriceAPI (não fazem parte do plano gratuito).</p>
+      <p class="text-xs text-muted mb-2">Já vem configurada por padrão para todos que abrem este link. Só mexa aqui se quiser usar sua própria chave neste navegador (ex.: a chave padrão atingir o limite do plano).</p>
       <input id="metalprice-key-input" type="password" placeholder="Cole sua chave gratuita aqui" autocomplete="off"
         class="bg-panel2 border border-hair rounded px-3 py-2 text-sm font-mono text-ink w-full placeholder:text-muted/60">
       <div class="flex items-center justify-between mt-2">
@@ -431,9 +431,16 @@ const NEWS_QUERY = {
 
 const LS_KEY = 'indice-real-settings-v1';
 
+// Chave fixa da MetalpriceAPI: este portal roda como um link único acessado por vários
+// usuários, então a chave precisa vir embutida no arquivo (não faz sentido pedir para cada
+// pessoa que abrir o link colar a própria chave). Trading Economics ainda não foi comprada,
+// então esse campo continua vazio por padrão — quem tiver uma chave própria pode colá-la em
+// Configurações.
+const DEFAULT_METALPRICE_API_KEY = '47a1826d834018ce941a1b7d37d2fffd';
+
 const state = {
   usdBrlRate: null,
-  metalpriceApiKey: '',
+  metalpriceApiKey: DEFAULT_METALPRICE_API_KEY,
   tradingEconomicsApiKey: '',
   data: {},
   newsCache: {},
@@ -461,7 +468,7 @@ function loadSettingsFromStorage() {
     if (typeof saved.autoRefreshEnabled === 'boolean') state.autoRefreshEnabled = saved.autoRefreshEnabled;
     if (typeof saved.autoRefreshMinutes === 'number' && saved.autoRefreshMinutes > 0) state.autoRefreshMinutes = saved.autoRefreshMinutes;
     if (typeof saved.saveKeyLocally === 'boolean') state.saveKeyLocally = saved.saveKeyLocally;
-    if (state.saveKeyLocally && typeof saved.metalpriceApiKey === 'string') state.metalpriceApiKey = saved.metalpriceApiKey;
+    if (state.saveKeyLocally && typeof saved.metalpriceApiKey === 'string' && saved.metalpriceApiKey) state.metalpriceApiKey = saved.metalpriceApiKey;
     if (typeof saved.saveTeKeyLocally === 'boolean') state.saveTeKeyLocally = saved.saveTeKeyLocally;
     if (state.saveTeKeyLocally && typeof saved.tradingEconomicsApiKey === 'string') state.tradingEconomicsApiKey = saved.tradingEconomicsApiKey;
   } catch (e) {

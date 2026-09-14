@@ -28,7 +28,7 @@ const BINANCE = 'https://api.binance.com/api/v3';
 // Configure isso no painel do Vercel (Project Settings -> Environment Variables).
 // O fallback abaixo só existe para não quebrar o site no primeiro deploy — troque
 // pela env var assim que possível, para poder trocar/revogar a chave sem reeditar código.
-const METALPRICE_API_KEY = process.env.METALPRICE_API_KEY || '47a1826d834018ce941a1b7d37d2fffd';
+const METALPRICE_API_KEY = process.env.METALPRICE_API_KEY || '';
 const TRADINGECONOMICS_API_KEY = process.env.TRADINGECONOMICS_API_KEY || '';
 
 // Histórico diário completo (sem downsample) coberto pelo maior período que a UI oferece (12M).
@@ -39,8 +39,8 @@ const HISTORY_DAYS = 365;
 // Quanto tempo o Vercel serve a resposta cacheada antes de buscar de novo nas fontes.
 // stale-while-revalidate: mesmo depois de vencer, serve a versão antiga por mais um tempo
 // enquanto busca a nova em segundo plano — o usuário nunca fica esperando um "cold fetch".
-const CACHE_SECONDS = 300; // 5 min
-const STALE_SECONDS = 600; // +10 min servindo versão antiga em segundo plano
+const CACHE_SECONDS = 3600; // 5 min
+const STALE_SECONDS = 7200; // +10 min servindo versão antiga em segundo plano
 
 const ASSET_META = {
   USDBRL: { kind: 'fx' }, EURBRL: { kind: 'fx' },

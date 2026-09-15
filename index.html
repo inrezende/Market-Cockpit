@@ -132,6 +132,8 @@
       <div class="text-right text-xs text-muted font-mono leading-tight mr-1">
         <div>Última atualização</div>
         <div id="last-updated" class="text-ink">—</div>
+        <div class="mt-1">Próxima atualização</div>
+        <div id="next-updated" class="text-ink">—</div>
       </div>
       <button id="settings-btn" aria-label="Configurações"
         class="font-mono text-xs w-10 h-10 rounded border border-hair text-muted hover:text-ink hover:border-cyan transition flex items-center justify-center shrink-0">
@@ -180,6 +182,7 @@
       <li><span class="text-ink">IGP-M, IPCA, Selic:</span> dados oficiais e históricos completos via <a class="text-cyan hover:underline" href="https://www3.bcb.gov.br/sgspub" target="_blank" rel="noopener">Sistema Gerenciador de Séries Temporais do Banco Central (SGS/BCB)</a>, pública e sem chave. IGP-M e IPCA exibidos como variação acumulada em 12 meses; Selic como meta definida pelo Copom.</li>
       <li><span class="text-ink">Bitcoin, Ethereum:</span> fonte 1 — <a class="text-cyan hover:underline" href="https://www.coingecko.com/api" target="_blank" rel="noopener">CoinGecko</a>. Se indisponível, fonte 2 (fallback) — <a class="text-cyan hover:underline" href="https://www.binance.com/en/binance-api" target="_blank" rel="noopener">Binance</a> (preço convertido para BRL pela cotação do dólar do dia).</li>
       <li><span class="text-ink">Notícias recentes:</span> busca ao vivo via <a class="text-cyan hover:underline" href="https://blog.gdeltproject.org/" target="_blank" rel="noopener">GDELT Project</a>, pública e sem chave.</li>
+      <li><span class="text-ink">Rotina de atualização:</span> os dados são buscados nas fontes automaticamente 2 vezes por dia, às <strong>8h e 16h</strong> (horário de Brasília) — fora desses horários, o servidor serve a última resposta já cacheada, sem gastar requests novas. O botão "Atualizar Dados" força uma busca imediata, mas essa resposta específica fica compartilhada entre todos os usuários por <strong>6h</strong>: cliques dentro dessa janela recebem o mesmo resultado, sem novo consumo. Isso existe porque a MetalpriceAPI (plano pago) tem limite de 1.000 requests/mês e cada atualização completa consome cerca de 5 dessas requests — com esse esquema, o uso mensal fica bem abaixo do limite mesmo somando o botão manual.</li>
       <li>Sempre que existe mais de uma fonte para um ativo, a página tenta a primeira e só usa a segunda se a primeira falhar — nunca combina as duas nem prioriza por preferência arbitrária. Histórico e variação diária não estão disponíveis gratuitamente para a maioria dos metais e químicos — só para câmbio, índices do BCB e cripto. Nenhum dado nesta página é simulado; se uma fonte falhar (ou não existir), o ativo mostra "indisponível" ou "sem fonte disponível" com o motivo técnico exato — nunca um número inventado.</li>
     </ul>
   </footer>
@@ -276,18 +279,8 @@
       </label>
 
       <div>
-        <label class="flex items-center justify-between text-sm text-ink">
-          Atualização automática
-          <input id="auto-refresh-toggle" type="checkbox" class="accent-cyan">
-        </label>
-        <div class="flex items-center justify-between mt-2">
-          <span class="text-xs text-muted">A cada</span>
-          <select id="auto-refresh-minutes" class="bg-panel2 border border-hair rounded px-2 py-1 text-xs text-ink">
-            <option value="5">5 minutos</option>
-            <option value="60">1 hora</option>
-            <option value="1440">1 dia</option>
-           </select>
-        </div>
+        <p class="text-sm text-ink mb-1">Atualização automática</p>
+        <p class="text-xs text-muted leading-relaxed">Dados atualizados às <strong class="text-ink">8h e 16h</strong> (horário de Brasília). O botão "Atualizar Dados" busca dado novo na hora, mas fica compartilhado entre todos por <strong class="text-ink">6h</strong> — evita estourar a cota mensal das APIs pagas.</p>
       </div>
 
       <p class="text-xs text-muted leading-relaxed">Favoritos: clique na estrela ☆ em qualquer ticker da grade para fixá-lo no topo. Fica salvo neste navegador.</p>
@@ -357,9 +350,8 @@ const state = {
   loading: false,
   lastUpdated: null,
   favorites: [],
-  autoRefreshEnabled: false,
-  autoRefreshMinutes: 5,
-  autoRefreshTimer: null,
+  nextScheduledAt: null,
+  pollTimer: null,
 };
 
 // ---------- Configurações persistidas (localStorage — só neste navegador, nunca enviado a nós) ----------
@@ -370,8 +362,6 @@ function loadSettingsFromStorage() {
     const saved = JSON.parse(raw);
     if (Array.isArray(saved.favorites)) state.favorites = saved.favorites.filter(k => ASSET_META[k]);
     if (typeof saved.selectedPeriod === 'string' && PERIOD_DAYS[saved.selectedPeriod]) state.selectedPeriod = saved.selectedPeriod;
-    if (typeof saved.autoRefreshEnabled === 'boolean') state.autoRefreshEnabled = saved.autoRefreshEnabled;
-    if (typeof saved.autoRefreshMinutes === 'number' && saved.autoRefreshMinutes > 0) state.autoRefreshMinutes = saved.autoRefreshMinutes;
   } catch (e) {
     console.warn('Não foi possível ler configurações salvas localmente:', e);
   }
@@ -381,18 +371,18 @@ function saveSettingsToStorage() {
     localStorage.setItem(LS_KEY, JSON.stringify({
       favorites: state.favorites,
       selectedPeriod: state.selectedPeriod,
-      autoRefreshEnabled: state.autoRefreshEnabled,
-      autoRefreshMinutes: state.autoRefreshMinutes,
     }));
   } catch (e) {
     console.warn('Não foi possível salvar configurações localmente:', e);
   }
 }
-function applyAutoRefreshTimer() {
-  if (state.autoRefreshTimer) { clearInterval(state.autoRefreshTimer); state.autoRefreshTimer = null; }
-  if (state.autoRefreshEnabled && state.autoRefreshMinutes > 0) {
-    state.autoRefreshTimer = setInterval(() => { if (!state.loading) loadAll(); }, state.autoRefreshMinutes * 60 * 1000);
-  }
+// Os dados no servidor só mudam às 8h/16h (horário de Brasília) ou quando alguém aperta
+// "Atualizar Dados". Este timer só serve para o navegador buscar essa mesma resposta cacheada de
+// tempos em tempos e refletir na tela quando um desses eventos já tiver acontecido — não gera
+// nenhuma chamada nova às fontes externas enquanto o cache do servidor ainda estiver válido.
+function startPollTimer() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(() => { if (!state.loading) loadAll(); }, 10 * 60 * 1000);
 }
 
 // ---------- Utilidades ----------
@@ -507,6 +497,23 @@ function recomputeChangeFromHistory(hist) {
 // Uma única chamada ao nosso próprio backend (/api/market-data), que já devolve tudo pronto —
 // o Vercel cacheia essa resposta por alguns minutos, então isso não bate nas APIs externas a cada
 // carregamento de página; só quando o cache expira, não importa quantas pessoas abram o link.
+function applyMarketDataPayload(payload) {
+  state.usdBrlRate = payload.usdBrlRate;
+  Object.keys(ASSET_META).forEach(key => {
+    const meta = ASSET_META[key];
+    if (meta.noSource) return;
+    const d = payload.data[key];
+    if (!d) {
+      state.data[key] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: true, errorMessage: 'Servidor não retornou este ativo', needsKey: false };
+      return;
+    }
+    state.fullHistory[key] = Array.isArray(d.history) ? d.history : [];
+    state.data[key] = { ...d, asOf: d.asOf ? new Date(d.asOf) : null, history: meta.chartable ? sliceHistory(state.fullHistory[key], state.selectedPeriod) : (d.history || []) };
+  });
+  state.lastUpdated = payload.generatedAt ? new Date(payload.generatedAt) : new Date();
+  state.nextScheduledAt = payload.nextScheduledAt ? new Date(payload.nextScheduledAt) : null;
+}
+
 async function loadAll() {
   state.loading = true;
   renderRefreshState();
@@ -516,20 +523,7 @@ async function loadAll() {
   applyNoSourceAssets();
 
   if (res.ok && res.value && res.value.data) {
-    const payload = res.value;
-    state.usdBrlRate = payload.usdBrlRate;
-    Object.keys(ASSET_META).forEach(key => {
-      const meta = ASSET_META[key];
-      if (meta.noSource) return;
-      const d = payload.data[key];
-      if (!d) {
-        state.data[key] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: true, errorMessage: 'Servidor não retornou este ativo', needsKey: false };
-        return;
-      }
-      state.fullHistory[key] = Array.isArray(d.history) ? d.history : [];
-      state.data[key] = { ...d, asOf: d.asOf ? new Date(d.asOf) : null, history: meta.chartable ? sliceHistory(state.fullHistory[key], state.selectedPeriod) : (d.history || []) };
-    });
-    state.lastUpdated = payload.generatedAt ? new Date(payload.generatedAt) : new Date();
+    applyMarketDataPayload(res.value);
   } else {
     const msg = errText(res) || 'Falha ao carregar dados do servidor';
     Object.keys(ASSET_META).forEach(key => {
@@ -538,6 +532,33 @@ async function loadAll() {
       state.data[key] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: true, errorMessage: msg, needsKey: false };
     });
     state.lastUpdated = state.lastUpdated || new Date();
+  }
+
+  state.loading = false;
+  renderAll();
+}
+
+// Botão "Atualizar Dados": chama a mesma rota com ?force=1. Essa resposta específica fica
+// cacheada 6h no servidor (ver comentário em /api/market-data.js) — então, se alguém já forçou
+// nos últimos 6h, esta chamada só recebe de volta essa mesma resposta cacheada, sem gastar
+// requests novas nas fontes externas. Não há necessidade de controlar isso aqui no navegador.
+async function forceRefresh() {
+  state.loading = true;
+  renderRefreshState();
+  renderKpiSkeletons();
+
+  const res = await settleOne(() => fetchJSON('/api/market-data?force=1'));
+  applyNoSourceAssets();
+
+  if (res.ok && res.value && res.value.data) {
+    applyMarketDataPayload(res.value);
+  } else {
+    const msg = errText(res) || 'Falha ao atualizar dados agora';
+    Object.keys(ASSET_META).forEach(key => {
+      const meta = ASSET_META[key];
+      if (meta.noSource || state.data[key]) return;
+      state.data[key] = { priceUSD: null, priceBRL: null, changePercent: null, changeLabel: null, asOf: null, asOfDateOnly: false, history: [], error: true, errorMessage: msg, needsKey: false };
+    });
   }
 
   state.loading = false;
@@ -698,8 +719,6 @@ function closeDrawer() {
 function openSettings() {
   // Popula os campos com o estado atual toda vez que o modal abre
   document.getElementById('default-period-select').value = state.selectedPeriod;
-  document.getElementById('auto-refresh-toggle').checked = state.autoRefreshEnabled;
-  document.getElementById('auto-refresh-minutes').value = String(state.autoRefreshMinutes);
   document.getElementById('settings-modal').classList.remove('opacity-0', 'pointer-events-none');
   document.getElementById('settings-backdrop').classList.remove('opacity-0', 'pointer-events-none');
 }
@@ -1037,17 +1056,26 @@ function renderLastUpdated() {
   if (!state.lastUpdated) { el.textContent = '—'; return; }
   el.textContent = state.lastUpdated.toLocaleTimeString('pt-BR');
 }
+function renderNextUpdated() {
+  const el = document.getElementById('next-updated');
+  if (!state.nextScheduledAt) { el.textContent = '—'; return; }
+  const sameDay = state.nextScheduledAt.toDateString() === new Date().toDateString();
+  el.textContent = sameDay
+    ? state.nextScheduledAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : `${state.nextScheduledAt.toLocaleDateString('pt-BR')} ${state.nextScheduledAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+}
 function renderAll() {
   renderRefreshState();
   renderKpiGrid();
   renderPeriodTabs();
   renderDetail(); // popula o conteúdo da gaveta em segundo plano; não a abre sozinho
   renderLastUpdated();
+  renderNextUpdated();
 }
 
 // ---------- Listeners ----------
 document.getElementById('refresh-btn').addEventListener('click', () => {
-  if (!state.loading) loadAll();
+  if (!state.loading) forceRefresh();
 });
 
 document.getElementById('drawer-close').addEventListener('click', closeDrawer);
@@ -1069,20 +1097,9 @@ document.getElementById('default-period-select').addEventListener('change', asyn
   safeCall(() => renderInsightsInto('detail-insights', buildInsightsFor(state.selectedAsset)), 'insights');
 });
 
-document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => {
-  state.autoRefreshEnabled = e.target.checked;
-  saveSettingsToStorage();
-  applyAutoRefreshTimer();
-});
-document.getElementById('auto-refresh-minutes').addEventListener('change', (e) => {
-  state.autoRefreshMinutes = Number(e.target.value) || 5;
-  saveSettingsToStorage();
-  applyAutoRefreshTimer();
-});
-
 // ---------- Boot ----------
 loadSettingsFromStorage();
-applyAutoRefreshTimer();
+startPollTimer();
 loadAll();
 </script>
 

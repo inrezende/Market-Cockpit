@@ -10,13 +10,21 @@
    Cache de CDN por chave de ativo: a primeira pessoa que abre o card do
    Bitcoin, por exemplo, paga o custo de 1 chamada à GDELT; todas as outras
    pessoas que abrirem o card do Bitcoin dentro da janela de cache recebem a
-   mesma resposta, sem nova chamada.
+   mesma resposta, sem nova chamada. Cache de 6h de propósito, casando com o
+   ritmo de atualização do /api/market-data: notícia não muda a cada poucos
+   minutos, e cada hit a menos na GDELT é um hit a menos batendo no rate
+   limit dela (que é global, compartilhado com qualquer outro projeto do
+   mundo usando a mesma API — não é algo que a gente controle só ajustando
+   nosso próprio ritmo de chamadas).
    ============================================================ */
 
 const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
-const CACHE_SECONDS = 600; // 10 min
-const STALE_SECONDS = 1200;
-const FETCH_TIMEOUT_MS = 12000;
+// 6h para casar com o cooldown de FORCE_CACHE_SECONDS do /api/market-data: as duas fontes de
+// dado do dashboard (cotações e notícias) ficam "frescas" no mesmo ritmo aos olhos do usuário.
+const CACHE_SECONDS = 6 * 60 * 60;
+const STALE_SECONDS = 1800; // mesma janela de segurança usada em /api/market-data (SCHEDULE_STALE_SECONDS)
+const FETCH_TIMEOUT_MS = 8000; // por tentativa — deixa espaço pro retry dentro do limite da function
+const RATE_LIMIT_RETRY_DELAY_MS = 5500; // GDELT pede "1 a cada 5s"; espera um pouco mais que isso
 
 const NEWS_QUERY = {
   USDBRL: 'dollar real Brazil exchange rate', EURBRL: 'euro real Brazil exchange rate',
@@ -28,31 +36,53 @@ const NEWS_QUERY = {
 };
 
 // Marca se o texto bateu com o aviso de rate-limit que a própria GDELT devolve (não-JSON,
-// "please limit requests to one every 5 seconds") — nesse caso não é uma falha real do endpoint,
-// é a GDELT pedindo para esperar. Trata-se como "sem notícias no momento" (200), não como erro (500):
-// o card de notícias já lida bem com uma lista vazia, e um 500 aqui não ajuda ninguém.
+// "please limit requests to one every 5 seconds"). A GDELT sinaliza rate limit dos dois jeitos:
+// às vezes com HTTP 429 de verdade, às vezes com HTTP 200 e esse texto solto no corpo.
 function isGdeltRateLimitText(text) {
   return /limit requests/i.test(text);
 }
 
-async function fetchJSON(url) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchOnce(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let res;
   try { res = await fetch(url, { signal: controller.signal }); }
   finally { clearTimeout(timer); }
   const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); }
-  catch {
-    if (isGdeltRateLimitText(text)) {
-      const err = new Error('GDELT pediu para aguardar (rate limit) — sem notícias desta vez');
-      err.softFail = true;
-      throw err;
-    }
-    throw new Error(`GDELT: resposta não-JSON (HTTP ${res.status}): "${text.trim().slice(0, 150)}"`);
+  return { status: res.status, ok: res.ok, text };
+}
+
+function isRateLimited(attempt) {
+  return attempt.status === 429 || isGdeltRateLimitText(attempt.text);
+}
+
+async function fetchJSON(url) {
+  let attempt = await fetchOnce(url);
+
+  // Uma colisão isolada com o rate limit da GDELT (por ex. outro projeto qualquer no mundo
+  // batendo nela no mesmo instante) não significa que não dá pra buscar a notícia — só que
+  // precisa esperar a janela de 5s passar. Por isso tenta de novo antes de desistir.
+  if (isRateLimited(attempt)) {
+    await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+    attempt = await fetchOnce(url);
   }
-  if (!res.ok) throw new Error(`GDELT: HTTP ${res.status}`);
+
+  if (isRateLimited(attempt)) {
+    const err = new Error('GDELT pediu para aguardar (rate limit) — sem notícias desta vez, mesmo após nova tentativa');
+    err.softFail = true;
+    throw err;
+  }
+
+  let data;
+  try { data = JSON.parse(attempt.text); }
+  catch {
+    throw new Error(`GDELT: resposta não-JSON (HTTP ${attempt.status}): "${attempt.text.trim().slice(0, 150)}"`);
+  }
+  if (!attempt.ok) throw new Error(`GDELT: HTTP ${attempt.status}`);
   return data;
 }
 

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/news.js": {
+      "maxDuration": 20
+    },
+    "api/market-data.js": {
+      "maxDuration": 30
+    }
+  }
+}

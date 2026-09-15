@@ -70,21 +70,11 @@ function nextScheduleBoundary(now) {
 }
 
 const ASSET_META = {
-  USDBRL: { kind: 'fx' },
-   EURBRL: { kind: 'fx' },
-  IGPM: { kind: 'macro', sgsCode: 28655 },
-   IPCA: { kind: 'macro', sgsCode: 13522 },
-   SELIC: { kind: 'macro', sgsCode: 432 },
-  BTC: { kind: 'crypto', cgId: 'bitcoin', binanceSymbol: 'BTCUSDT' },
-   ETH: { kind: 'crypto', cgId: 'ethereum', binanceSymbol: 'ETHUSDT' },
-  XAU: { kind: 'metal' },
-   XAG: { kind: 'metal' },
-   XPT: { kind: 'metal' },
-   XPD: { kind: 'metal' },
-   HG: { kind: 'metal' },
-  NI: { kind: 'metal' },
-   XCO: { kind: 'metal' },
-   XMO: { kind: 'metal' },
+  USDBRL: { kind: 'fx' }, EURBRL: { kind: 'fx' },
+  IGPM: { kind: 'macro', sgsCode: 28655 }, IPCA: { kind: 'macro', sgsCode: 13522 }, SELIC: { kind: 'macro', sgsCode: 432 },
+  BTC: { kind: 'crypto', cgId: 'bitcoin', binanceSymbol: 'BTCUSDT' }, ETH: { kind: 'crypto', cgId: 'ethereum', binanceSymbol: 'ETHUSDT' },
+  XAU: { kind: 'metal' }, XAG: { kind: 'metal' }, XPT: { kind: 'metal' }, XPD: { kind: 'metal' }, HG: { kind: 'metal' },
+  NI: { kind: 'metal' }, XCO: { kind: 'metal' }, XMO: { kind: 'metal' },
   HRC: { kind: 'metal', teSymbol: 'hrc-steel', sourceUrl: 'https://tradingeconomics.com/commodity/hrc-steel' },
   ENXOFRE: { kind: 'chemical', teSymbol: 'sulfur', sourceUrl: 'https://tradingeconomics.com/commodity/sulfur' },
 };

@@ -28,7 +28,7 @@ const BINANCE = 'https://api.binance.com/api/v3';
 // Configure isso no painel do Vercel (Project Settings -> Environment Variables).
 // O fallback abaixo só existe para não quebrar o site no primeiro deploy — troque
 // pela env var assim que possível, para poder trocar/revogar a chave sem reeditar código.
-const METALPRICE_API_KEY = process.env.METALPRICE_API_KEY || '';
+const METALPRICE_API_KEY = process.env.METALPRICE_API_KEY || '47a1826d834018ce941a1b7d37d2fffd';
 const TRADINGECONOMICS_API_KEY = process.env.TRADINGECONOMICS_API_KEY || '';
 
 // Histórico diário completo (sem downsample) coberto pelo maior período que a UI oferece (12M).
@@ -36,11 +36,38 @@ const TRADINGECONOMICS_API_KEY = process.env.TRADINGECONOMICS_API_KEY || '';
 // gera nenhuma chamada de rede nova.
 const HISTORY_DAYS = 365;
 
-// Quanto tempo o Vercel serve a resposta cacheada antes de buscar de novo nas fontes.
-// stale-while-revalidate: mesmo depois de vencer, serve a versão antiga por mais um tempo
-// enquanto busca a nova em segundo plano — o usuário nunca fica esperando um "cold fetch".
-const CACHE_SECONDS = 3600; // 5 min
-const STALE_SECONDS = 7200; // +10 min servindo versão antiga em segundo plano
+// ---------- Agenda de atualização ----------
+// Em vez de um cache de duração fixa (5 min), a resposta normal (/api/market-data) fica em
+// cache até o próximo horário de corte (8h ou 16h, horário de Brasília) — ou seja, as fontes
+// externas só são consultadas de novo exatamente nesses 2 horários por dia, não a cada N minutos.
+// Isso existe porque a MetalpriceAPI (plano pago) tem limite de 1000 requests/mês e cada
+// atualização completa consome ~5 dessas requests — com 2 atualizações automáticas por dia
+// (~300-310/mês) sobra folga para o botão de atualização manual (ver abaixo).
+const SCHEDULE_HOURS_BRT = [8, 16]; // horário de Brasília (UTC-3, sem horário de verão)
+const SCHEDULE_STALE_SECONDS = 1800; // +30 min servindo versão antiga em segundo plano, por segurança
+
+// Botão "Atualizar Dados": bypassa a agenda (chamado com ?force=1) e busca dado fresco na hora,
+// mas a PRÓPRIA resposta fica em cache por 6h — como todos os usuários compartilham o mesmo link
+// (e portanto a mesma URL/chave de cache), isso funciona como cooldown automático sem precisar de
+// nenhum banco de dados: dentro das 6h, qualquer clique (de qualquer pessoa) recebe a mesma
+// resposta cacheada em vez de gastar requests novas nas fontes externas.
+const FORCE_CACHE_SECONDS = 6 * 60 * 60; // 6h
+
+function nextScheduleBoundary(now) {
+  // Converte "agora" para hora de Brasília usando o offset fixo (America/Sao_Paulo não tem mais
+  // horário de verão desde 2019), sem depender de Intl/timezone do runtime.
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const candidates = SCHEDULE_HOURS_BRT.map(h => {
+    const d = new Date(Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate(), h, 0, 0));
+    return d;
+  });
+  // Também considera o primeiro horário do dia seguinte, caso já tenha passado o último de hoje.
+  const tomorrowFirst = new Date(Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate() + 1, SCHEDULE_HOURS_BRT[0], 0, 0));
+  candidates.push(tomorrowFirst);
+  const nextBrt = candidates.filter(d => d.getTime() > brt.getTime()).sort((a, b) => a - b)[0];
+  // Converte de volta para o instante real em UTC (soma os 3h que subtraímos acima).
+  return new Date(nextBrt.getTime() + 3 * 60 * 60 * 1000);
+}
 
 const ASSET_META = {
   USDBRL: { kind: 'fx' }, EURBRL: { kind: 'fx' },
@@ -389,13 +416,23 @@ async function buildMarketData() {
   })());
 
   await Promise.all(tasks);
-  return { usdBrlRate, data, generatedAt: new Date().toISOString() };
+  const now = new Date();
+  const nextScheduledAt = nextScheduleBoundary(now).toISOString();
+  return { usdBrlRate, data, generatedAt: now.toISOString(), nextScheduledAt };
 }
 
 module.exports = async (req, res) => {
+  const forced = req.query && (req.query.force === '1' || req.query.force === 'true');
   try {
     const payload = await buildMarketData();
-    res.setHeader('Cache-Control', `public, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${STALE_SECONDS}`);
+    if (forced) {
+      // Resposta do botão manual: cacheada por 6h, funcionando como cooldown compartilhado
+      // entre todos os usuários (ver comentário de FORCE_CACHE_SECONDS acima).
+      res.setHeader('Cache-Control', `public, s-maxage=${FORCE_CACHE_SECONDS}, stale-while-revalidate=60`);
+    } else {
+      const secondsUntilNext = Math.max(60, Math.round((new Date(payload.nextScheduledAt).getTime() - Date.now()) / 1000));
+      res.setHeader('Cache-Control', `public, s-maxage=${secondsUntilNext}, stale-while-revalidate=${SCHEDULE_STALE_SECONDS}`);
+    }
     res.status(200).json(payload);
   } catch (e) {
     res.status(500).json({ error: e.message || 'Falha ao montar dados de mercado' });

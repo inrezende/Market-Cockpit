@@ -27,6 +27,14 @@ const NEWS_QUERY = {
   H2SO4: 'sulfuric acid price', NAOH: 'caustic soda price', BTC: 'bitcoin price', ETH: 'ethereum price',
 };
 
+// Marca se o texto bateu com o aviso de rate-limit que a própria GDELT devolve (não-JSON,
+// "please limit requests to one every 5 seconds") — nesse caso não é uma falha real do endpoint,
+// é a GDELT pedindo para esperar. Trata-se como "sem notícias no momento" (200), não como erro (500):
+// o card de notícias já lida bem com uma lista vazia, e um 500 aqui não ajuda ninguém.
+function isGdeltRateLimitText(text) {
+  return /limit requests/i.test(text);
+}
+
 async function fetchJSON(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -36,7 +44,14 @@ async function fetchJSON(url) {
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); }
-  catch { throw new Error(`GDELT: resposta não-JSON (HTTP ${res.status}): "${text.trim().slice(0, 150)}"`); }
+  catch {
+    if (isGdeltRateLimitText(text)) {
+      const err = new Error('GDELT pediu para aguardar (rate limit) — sem notícias desta vez');
+      err.softFail = true;
+      throw err;
+    }
+    throw new Error(`GDELT: resposta não-JSON (HTTP ${res.status}): "${text.trim().slice(0, 150)}"`);
+  }
   if (!res.ok) throw new Error(`GDELT: HTTP ${res.status}`);
   return data;
 }
@@ -52,6 +67,13 @@ module.exports = async (req, res) => {
     res.setHeader('Cache-Control', `public, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${STALE_SECONDS}`);
     res.status(200).json({ items });
   } catch (e) {
+    if (e.softFail) {
+      // Cache curto (1 min): se alguém tentar de novo logo em seguida, não martela a GDELT
+      // de novo enquanto o rate limit dela ainda estiver valendo.
+      res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=60');
+      res.status(200).json({ items: [], message: e.message });
+      return;
+    }
     res.status(500).json({ error: e.message || 'Falha ao buscar notícias' });
   }
 };
